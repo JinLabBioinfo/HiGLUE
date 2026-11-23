@@ -568,7 +568,9 @@ class GLUETrainer(Trainer):
         # (not with worker processes, which cannot use the parent's CUDA tensors)
         if not config.CPU_ONLY and device.type == "cuda" and hasattr(data, "to_device") \
                 and not config.DATALOADER_NUM_WORKERS:
-            free_bytes, _ = torch.cuda.mem_get_info(device)
+            # newer torch rejects a device without an index ("cuda"); use the current device then
+            free_bytes, _ = torch.cuda.mem_get_info(
+                device.index if device.index is not None else torch.cuda.current_device())
             data_on_device = data.to_device(device, min(
                 self.DATA_DEVICE_MAX_BYTES,
                 self.DATA_DEVICE_MAX_FREE_FRACTION * free_bytes

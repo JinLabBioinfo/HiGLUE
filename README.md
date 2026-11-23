@@ -14,6 +14,7 @@ conda create -n higlue python=3.9 && conda activate higlue
 pip install ./scglue                                        # the local scglue
 pip install git+https://github.com/JinLabBioinfo/SCORE.git  # scHi-C loading and preprocessing
 pip install local-attention cooltools wandb                 # attention decoder, structure analysis, logging
+pip install harmonypy                                       # scGAD baseline (--baselines scgad)
 ```
 
 After changing anything under `scglue/`, reinstall it into the environment (without touching the other packages) with:
@@ -133,6 +134,112 @@ python higlue.py ... --train \
 Options: `--structure_scool` (single cells at a finer resolution than the model, 100kb works well; default `--scool`), `--structure_markers` (TSV with `celltype` and `gene` columns; default: the dataset's markers in `evals.DATASET_CONFIGS`, if any, otherwise the marker plots are skipped), `--structure_min_cells` (smallest pool, 50), `--structure_max_cells` (pools are subsampled to this many cells, 1000, which bounds the run time to roughly 10-30 minutes), `--structure_top_loci` (15).
 
 A pool of predicted cells whose structure matches the expression of its RNA type is evidence that the predictions are biologically meaningful, also for cells without labels.
+
+## Figures during training
+
+Every `--save_interval` epochs the label transfer metrics are logged (wandb) and figures are written to `<exp_name>/viz/{pretrain,finetune}/`:
+
+| Folder | Content |
+| --- | --- |
+| `cells/` | Hi-C cells, UMAP and PCA: annotation, transferred labels, Leiden, depth, batch |
+| `joint/` | all modalities in the joint space (subsampled to 30k cells each); paired cells vs random pairs |
+| `confusion/` | annotated vs transferred labels, row normalized (plus sorted α/β cells) |
+| `params/` | decoder parameters: strata weights by cell type, scales, zero inflation, dispersion, composition weights or stratum keys, attention range |
+| `features/` | anchor and gene embeddings of one chromosome and the similarity of its anchor embeddings (overwritten each time) |
+| `loci/` | for the first `--viz_loci` (3) genes of `--gene_list`: guidance graph arcs, observed vs predicted contacts per cell type, decoder attention (overwritten each time) |
+
+The numbered figures (`cells`, `joint`, `confusion`, `params`) make animations of training. Attention maps reproduce the attention weights of the decoder exactly (checked against its output at every save). `--viz basic` skips features and loci, `--viz none` writes no figures.
+
+## Baselines
+
+`--baselines scgad` runs scGAD on the same cells after training (`scgad.py`, a Python port of `scGAD` from [BandNorm](https://github.com/keleslab/BandNorm)): contacts within each gene body are counted per cell, depth normalized and z-scored per gene, co-embedded with the RNA by PCA on shared variable genes and Harmony, and evaluated with the same label transfer and metrics as HiGLUE. Results go to `<eval_dir>/baselines/scgad/`; its `alone_*` metrics are the scGAD embedding without RNA.
+
+```bash
+python higlue.py ... --train --baselines scgad --scgad_scool hic_5kb.scool SCORE ...
+```
+
+scGAD is meant for high resolution: pass a 5-10kb `.scool` with `--scgad_scool` (default `--scool`). GAD counts are cached in `<data_dir>/baselines/`. Options: `--scgad_features` (shared variable genes, 2000), `--scgad_pcs` (30), `--scgad_jobs` (processes reading cells, 8). It also runs on its own: `python scgad.py --rna rna.h5ad --scool hic_5kb.scool --reference hic_ref.tsv --out_dir <dir>`.
+
+`--baselines graph_match` (`graph_match.py`, single resolution) labels the Hi-C cells without any alignment or composition matching:
+
+1. **Hi-C only clusters:** every stratum of a cell's band features is scaled to the same total, then log, PCA, Harmony by batch (when there are several batches) and Leiden. `--graph_match_resolution auto` (default) clusters at 0.5–3 and keeps the resolution whose clusters match their types best (size-weighted mean z of step 2): clusters that merge types match none of them well. On PFC it picks 2.0, on the islet atlas 0.5, in both the scan's best composition estimate.
+2. **Names through the graph:** each cluster's same-bin pseudobulk contacts per anchor are correlated with every RNA type's expression signature. The signatures are carried to the anchors by the guidance graph's gene–anchor edges. The best type, as a z-score over the types, names the cluster.
+
+It measures what the guidance graph alone can do. Results go to `<eval_dir>/baselines/graph_match/`:
+
+- the HiGLUE metrics, plus `composition_tv_to_annotation` (its composition estimate vs the annotation) and `higlue_composition_tv_to_annotation` (HiGLUE's predictions vs the annotation)
+- `cluster_matching.png`: clusters × RNA types
+- `composition.png`: the annotation, graph matching, HiGLUE and the reference side by side
+- `hic_umap.png` and `confusion.png`
+
+Standalone on preprocessed data: `python graph_match.py --data_dir main_data/<dataset>/<config> --dset <name> --out_dir <dir>`. `islet_benchmark/graph_cluster_matching.py` runs it on every dataset.
+
+`--baselines loops --loop_baseline_loops loops.tsv` (`loop_features.py`) embeds the Hi-C cells without RNA from their contacts at a given set of loops only (TSV with `chrom`, `pos1`, `pos2` in the coordinates of `--scgad_scool`/`--scool`), following the loop-based embedding of Tian et al., Science 2023 (Fig. 2H): each loop is a pixel at `--loop_baseline_res` (100kb), read from the high-resolution scool, with feature values from `--loop_baseline_norm`: `lsi` (the paper's binary LSI), `depth`, `oe` (per-cell distance expected), `ice` (per-cell ICE biases at 1 Mb) or `ice_oe`. It is scored on the labelled cells like the scGAD `alone_*` metrics plus the paper's K-Means benchmark (`kmeans_ari`: best ARI over k = 3-12), and repeated on the same pixels moved 1-5 Mb (`shifted_*`), so the gap shows what the loop positions add beyond distance-matched contacts. Results go to `<eval_dir>/baselines/loops/`. Standalone: `python loop_features.py --scool hic_5kb.scool --reference hic_ref.tsv --loops loops.tsv --out_dir <dir>`.
+
+### Gene-body contacts as a modality
+
+The scGAD gene-body contact counts of the Hi-C cells are added to HiGLUE as a third modality, `gad` (on by default for single-resolution models; `--no-gad_modality` turns it off). It has one count feature `gad:<gene>` per variable RNA gene with gene-body contacts in at least `--gad_min_cells` (1%) of the cells, modeled as negative binomial like expression. Each feature is linked to its gene in the guidance graph. Its cells are the Hi-C cells, so the model trains as a paired model (`PairedSCGLUEModel`): the Hi-C and gene-body encoders of a cell are tied by the cross-prediction and cosine losses.
+
+The counts come from `--gad_scool` (default `--scgad_scool`, else `--scool`); finer resolutions separate more genes. They are cached with the scGAD baseline's. `--gad_weight` sets the modality weight (1.0, Hi-C uses `--hic_weight`). Metrics of the gene-body encoder are reported with a `gad_` prefix, and the Hi-C metrics stay unprefixed. Pass a high-resolution `.scool` (`--scgad_scool hic_5kb.scool`); without one, training warns and counts at the model resolution.
+
+### Per-cell distance-decay normalization
+
+By default the Hi-C input of a cell is normalized by its total contacts only. Its distance-decay profile (how its contacts are spread over strata) is kept, and the decoder predicts each cell's split over strata from its embedding (`--strata_weights cell`). Single-cell distance decay varies with cell cycle and state, but also with the library. In the islet atlas, one donor has a cis/trans ratio about 1.5× higher and more short-range contacts in every cell type.
+
+`--decay_norm cell` removes the profile:
+
+- **Encoder:** every stratum of a cell is scaled by the cell's own total in that stratum, so the input only says where along the genome the contacts at each distance fall.
+- **Decoder:** each stratum is decoded with its observed total as library size, so the embedding no longer has to explain the profile.
+
+It applies to single-resolution models only, and it is off by default until it is benchmarked. In the in-house islet Dip-C, the FACS-sorted plates have 72% of their contacts in the same bin (52–62% in the other plates) at half the depth. Without `--decay_norm cell`, 77–98% of the sorted cells sit in clusters of sorted cells only, and their labels depend on how those clusters happen to align (sorted accuracy 0.04–0.98 over seeds). With it, no cluster is sorted-only and seeds agree (0.86–0.89):
+
+```bash
+TRAIN_ARGS="--decay_norm cell" ./benchmark_main.sh --datasets islet_atlas,islet_inhouse
+```
+
+### Composition-weighted alignment
+
+The modality discriminator asks the Hi-C and RNA embeddings to overlap. When the RNA reference has different cell-type proportions from the Hi-C cells, overlap is only possible by moving Hi-C cells onto the reference's over-represented types. In the islet atlas, acinar and ductal cells were moved onto Alpha, PSC and Endothelial. GLUE's `--balance` estimates its weights from the pretrained embedding, which is already misaligned.
+
+`--comp_weight graph` (the default for unpaired data, see below) estimates the Hi-C composition first, without the discriminator, using the graph matching above. It then weights every RNA cell in the discriminator by (estimated Hi-C share / reference share) of its type. The reference then has the estimated Hi-C composition, as with `--match_composition` but without the Hi-C labels.
+
+Details:
+- The estimate counts each cluster's cells toward its name. `--comp_weight_temperature T` spreads them over the types by a softmax of the match z-scores instead; that hurt the islet atlas, where similar types (Beta/Gamma, acinar/ductal) have close z-scores.
+- `--comp_weight_floor` (0.1) is the share of weight kept by reference types the estimate does not find.
+- It helps when the Hi-C only clusters resolve the reference's types. Estimate vs annotation (total variation; reference vs annotation in brackets): islet atlas 0.03 (0.33), PFC 0.11 (0.13), human brain 0.36 (0.20). The human brain reference has 19 types, finer than the Hi-C clusters, and the estimate is worse than the reference itself. `<eval_dir>/comp_weight/summary.csv` records the share of the reference the named types cover (`reference_coverage`; atlas 0.93, PFC 0.90, human brain 0.83), and training warns below 0.85.
+- `--comp_weight auto` (default) is `graph` for single-resolution models of unpaired data, and `none` when most Hi-C cells are also RNA cells (identical composition by construction), with `--resolutions`, `--balance` or `--match_composition`.
+- Islet atlas accuracy 0.83–0.91 with it vs 0.66–0.73 without (GAD modality, 3 seeds); PFC 0.817 vs 0.828 (its reference already matches).
+- The estimate, the weights and a composition figure go to `<eval_dir>/comp_weight/`.
+- With `--baselines graph_match`, the same clusters are reused.
+
+```bash
+TRAIN_ARGS="--comp_weight none" ./benchmark_main.sh --datasets islet_atlas   # ablation
+```
+
+## Main benchmark
+
+The inputs of the paper's main results are collected in `datasets/`, one directory per dataset with the same file names (`rna.h5ad`, `genes.gtf`, `hic_ref.tsv`, `hic_<res>.scool`):
+
+| Dataset | scHi-C | RNA reference | Genome |
+| --- | --- | --- | --- |
+| `pfc` | sn-m3C-seq PFC neurons (Lee et al. 2019) | snRNA-seq (Velmeshev et al. 2019) | hg19 |
+| `human_brain` | snm3C-seq brain atlas neurons (Tian et al. 2023) | snRNA-seq atlas (Siletti et al. 2023) | hg38 |
+| `hires_brain` | HiRES mouse brain, paired (Liu et al. 2023) | same cells | mm10 |
+| `droplet_cortex` | Droplet Hi-C mouse cortex, paired multiome (Chang et al. 2025) | same cells | mm10 |
+| `islet_atlas` | all cells of the islet samples of the snm3C-seq human body atlas (Zhou et al. 2026), incl. stromal and immune cells (`datasets/build_islet_atlas_all.py`) | PancDB / HPAP | hg38 |
+| `islet_inhouse` | in-house islet Dip-C (sorted α/β labeled) | PancDB / HPAP | hg19 |
+
+```bash
+datasets/link_datasets.sh          # symbolic links to the lab storage (source paths are listed in this script)
+datasets/sync_to_cluster.sh        # copy the tree to the cluster (links within it are kept, ~30 GB)
+
+./benchmark_main.sh --list         # per dataset settings
+./benchmark_main.sh --prep_only    # preprocess every dataset once
+./benchmark_main.sh                # 3 seeds per dataset: train, evaluate, scGAD, graph matching, structure (islets)
+python benchmark_summary.py        # mean ± SD tables (main_runs/main_summary.csv) and main_comparison.png
+```
+
+On SLURM, `benchmark_main.slurm` runs the preprocessing, then an array of training shards (see the header of the file). `benchmark_final.sh` submits the final benchmark: one preprocessing job, then one array per configuration (the defaults, `--decay_norm cell`, and the ablations `--comp_weight none` and `--no-gad_modality --comp_weight none`), one run per task. Runs go to `main_runs/<dataset>/<res>_<config>_gadcw[-train-<hash>]/seed<N>/` (`gadcw`: the model defaults, `MODEL_TAG`), preprocessed data to `main_data/`. `EXTRA_ARGS="..."` adds higlue.py options to every step (own preprocessing), `TRAIN_ARGS="..."` to training only. `benchmark.sh` and `islet_benchmark/sweep.sh` hold the ablations.
 
 ## Multi-resolution models (experimental)
 

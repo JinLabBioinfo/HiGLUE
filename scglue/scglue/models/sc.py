@@ -380,7 +380,8 @@ class HiCDataEncoder(DataEncoder):
                 downsample_max: float = 1.0,
                 strata_masks: list = [],
                 strata_input_norm: bool = True,
-                use_conv=False):
+                use_conv=False,
+                cell_decay_norm: bool = False):
         if use_conv:
             # ensure that the matrix can be halved as many times as the depth
             depth = 3
@@ -390,12 +391,27 @@ class HiCDataEncoder(DataEncoder):
         self.strata_masks = strata_masks
         self.use_conv = use_conv
         self.strata_scaler = None
-        if strata_input_norm and strata_masks:
+        segment = None
+        if strata_masks:
             n_features = sum(len(mask) for mask in strata_masks)
             segment = np.zeros(n_features, dtype=np.int64)
             for k, mask in enumerate(strata_masks):
                 segment[np.asarray(mask, dtype=np.int64)] = k
+        if strata_input_norm and strata_masks:
             self.strata_scaler = StrataScaler(len(strata_masks), segment=segment)
+        # Per-cell distance-decay normalization: every stratum of a cell is
+        # scaled by that cell's own total in the stratum, so the input holds
+        # where along the genome a cell's contacts fall at each distance, but
+        # not how its contacts are spread over distances (which carries
+        # technical library differences, e.g. between donors). The normalizer
+        # ``l`` then has one column per stratum, which the decoder uses as
+        # library size of each stratum.
+        self.cell_decay_norm = cell_decay_norm
+        if cell_decay_norm:
+            if segment is None:
+                raise ValueError("Per-cell distance-decay normalization needs the strata of the features")
+            self.n_strata = len(strata_masks)
+            self.register_buffer("stratum_of", torch.as_tensor(segment))
         if use_conv:
             self.pool_padding_len = pool_padding_len
             self.conv_net = torch.nn.Sequential(
@@ -424,12 +440,18 @@ class HiCDataEncoder(DataEncoder):
         
 
     def compute_l(self, x: torch.Tensor) -> torch.Tensor:
+        if self.cell_decay_norm:  # total of every stratum (n_cells x n_strata)
+            return torch.zeros(x.shape[0], self.n_strata, dtype=x.dtype, device=x.device).index_add_(
+                1, self.stratum_of, x)
         return x.sum(dim=1, keepdim=True)
 
     def normalize(
             self, x: torch.Tensor, l: torch.Tensor
     ) -> torch.Tensor:
-        x = x * (self.TOTAL_COUNT / l)
+        if self.cell_decay_norm:  # every stratum sums to TOTAL_COUNT / n_strata
+            x = x * (self.TOTAL_COUNT / self.n_strata) / l.clamp(min=1)[:, self.stratum_of]
+        else:
+            x = x * (self.TOTAL_COUNT / l)
         if self.strata_scaler is not None:
             x = self.strata_scaler(x)
         return x.log1p()
@@ -776,8 +798,23 @@ class StratifiedZINBDataDecoder(DataDecoder):
 
     def __init__(self, out_features: int, n_batches: int = 1, input_dim: int = 5, embedding_size: int = 50, n_nodes = 10000, dropout: float = 0.2,
                  feature_masks: list = [], strata_masks: list = [], shifted_additive: bool = False, use_activation: bool = False, use_attn: bool = False,
-                 binarize: bool = False, cell_strata_weights: bool = True) -> None:
+                 binarize: bool = False, cell_strata_weights: bool = True, key_mode: Optional[str] = None,
+                 cell_decay_norm: bool = False) -> None:
         super().__init__(out_features, n_batches=n_batches)
+        # How the key (loading) of the contact between anchors i and i + k is built:
+        # "composition_attention": anchored composition w1 * v_i + w2 * v_(i+k), then a
+        #   pre-norm local attention block with feed-forward layer (as in the
+        #   multi-resolution decoder)
+        # "composition": the anchored composition only (linear)
+        # "attention": a transform of v_i plus local attention, without the partner
+        #   anchor (the original single resolution decoder)
+        if key_mode is None:
+            key_mode = "attention" if use_attn else "composition"
+        if key_mode not in ("composition_attention", "composition", "attention"):
+            raise ValueError(f"Unknown key_mode '{key_mode}'")
+        self.key_mode = key_mode
+        use_attn = key_mode != "composition"
+        attn_window = input_dim * 20 if key_mode == "attention" else min(max(4 * input_dim, 32), 256)
         self.scale_lin = torch.nn.Parameter(torch.zeros(n_batches, out_features))
         self.bias = torch.nn.Parameter(torch.zeros(n_batches, out_features))
         self.log_theta = torch.nn.Parameter(torch.zeros(n_batches, out_features))
@@ -805,7 +842,7 @@ class StratifiedZINBDataDecoder(DataDecoder):
             self.value_layers.append(torch.nn.Linear(embedding_size, embedding_size, bias=False))
             self.attn_layers.append(LocalAttention(
                                     dim = embedding_size,
-                                    window_size = input_dim * 20,
+                                    window_size = attn_window,
                                     autopad = True,
                                     shared_qk = True))
             self.prenorm_layers.append(torch.nn.LayerNorm(embedding_size))
@@ -838,11 +875,38 @@ class StratifiedZINBDataDecoder(DataDecoder):
         # forces every cell onto the same distance-decay profile, which is one
         # of the strongest axes of variation in single-cell Hi-C; predicting an
         # offset from the cell latent lets the reconstruction reward encoding it.
+        # With per-cell distance-decay normalization (see HiCDataEncoder) the
+        # library size of every stratum is observed, so neither the global nor
+        # the per-cell split is learned; the global vector is only used when a
+        # single library size is given (e.g. expected values per unit library)
+        self.cell_decay_norm = cell_decay_norm
+        cell_strata_weights = cell_strata_weights and not cell_decay_norm
         self.cell_strata_weights = cell_strata_weights
         if cell_strata_weights:
             self.strata_weight_head = torch.nn.Linear(embedding_size, input_dim)
             torch.nn.init.zeros_(self.strata_weight_head.weight)
             torch.nn.init.zeros_(self.strata_weight_head.bias)
+
+    def stratum_key(self, v: torch.Tensor, k: int) -> torch.Tensor:
+        r"""
+        Key (loading) of the contacts of every anchor with the anchor ``k`` bins
+        downstream, from the anchor embeddings ``v`` (see ``key_mode``)
+        """
+        mode = getattr(self, "key_mode", "attention" if self.use_attn else "composition")  # older models
+        if mode == "attention":
+            prenorm = self.prenorm_layers[k - 1](v)
+            qk = self.key_layers[k - 1](prenorm)
+            key = self.value_layers[k - 1](prenorm) + self.attn_layers[k - 1](qk, qk, prenorm)
+            return key + self.ff_activations[k - 1](self.ff_layers[k - 1](self.postnorm_layers[k - 1](key)))
+        key = stratum_key_conv(self.key_convs[k - 1], v, k)
+        if self.use_activation:
+            key = self.key_conv_activations[k - 1](key)
+        if mode == "composition":
+            return key
+        prenorm = self.prenorm_layers[k - 1](key)
+        qk = self.key_layers[k - 1](prenorm)
+        key = key + self.attn_layers[k - 1](qk, qk, prenorm)
+        return key + self.ff_activations[k - 1](self.ff_layers[k - 1](self.postnorm_layers[k - 1](key)))
 
     def stratum_weights(self, u: torch.Tensor) -> torch.Tensor:
         r"""
@@ -862,7 +926,10 @@ class StratifiedZINBDataDecoder(DataDecoder):
         scale = F.softplus(self.scale_lin[b])
         log_theta = self.log_theta[b]
         #strata_start = 0
-        weights = self.stratum_weights(u)  # n_cells * n_strata
+        if l.shape[1] == self.input_dim and getattr(self, "cell_decay_norm", False):
+            lib = l  # observed total of every stratum
+        else:
+            lib = l * self.stratum_weights(u)  # n_cells * n_strata
         for k in range(self.input_dim):
             strata_indices = self.strata_masks[k]
             feature_indices = self.feature_masks[k]
@@ -874,26 +941,14 @@ class StratifiedZINBDataDecoder(DataDecoder):
                 # first strata is reconstrcuted as normal (considered as self-loops)
                 key = v
             else:
-                # distal strata are reconstructed via inner product with their associated strata and a linear layer
-                # maybe something like v * torch.roll(v, k, dims=1) ??
-                # or consider embedding distance using something like torch.roll(v, k)
-                if self.use_attn:
-                    prenorm = self.prenorm_layers[k - 1](v)
-                    qk = self.key_layers[k - 1](prenorm)
-                    v_k = self.value_layers[k - 1](prenorm)
-                    key = v_k + self.attn_layers[k - 1](qk, qk, prenorm)
-                    key = key + self.ff_activations[k - 1](self.ff_layers[k - 1](self.postnorm_layers[k - 1](key)))
-                else:
-                    key = stratum_key_conv(self.key_convs[k - 1], v, k)
-                    if self.use_activation:
-                        key = self.key_conv_activations[k - 1](key)
+                key = self.stratum_key(v, k)
 
             decoded_strata = (query @ key.t())[:, feature_indices]  # decode (ignoring excluded anchors at this strata)
             logit_mu = scale_slice * decoded_strata + bias_slice
             if self.binarize:
                 mu = logit_mu
             else:
-                mu = F.softmax(logit_mu, dim=1) * l * weights[:, k:k + 1]
+                mu = F.softmax(logit_mu, dim=1) * lib[:, k:k + 1]
             mu_slices.append(mu)
 
         mu = torch.concat(mu_slices, dim=1)  # because of this we need at least the strata to be sorted in the node embedding

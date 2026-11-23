@@ -8,6 +8,7 @@ from cooler._logging import set_verbosity_level
 import os
 import sys
 import itertools
+import hashlib
 import argparse
 import numpy as np 
 import pandas as pd
@@ -319,23 +320,9 @@ def load_methyl_modality(methyl_file, rna, gtf_file, n_genes, plot_dir):
     methyl.layers["counts"] = methyl.X.copy()
     methyl.var['name'] = methyl.var_names
     methyl.var['name'] = methyl.var['name'].apply(lambda s: s.replace('_mCH', '').replace('_mCG', ''))
-    keep_columns = scglue.genomics.Bed.COLUMNS
-    for col in keep_columns:
-        try:
-            rna.var.drop(columns=[col], inplace=True)
-        except Exception as e:
-            print(e)
-            pass
-    try:
-        scglue.data.get_gene_annotation(
-            rna, gtf=gtf_file,
-            gtf_by="gene_name"
-        )
-    except KeyError:
-        scglue.data.get_gene_annotation(
-            rna, gtf=gtf_file,
-            gtf_by="gene_symbol"
-        )
+    # the RNA genes are already annotated (and cleaned: 'chr' names, unannotated genes dropped) by the RNA loader;
+    # only their names are used here. Re-annotating rna from the raw GTF in place, as before, undid that cleaning for
+    # every later step (with an Ensembl-style GTF: chromosomes without 'chr' and genes without coordinates)
     methyl.var['chromStart'] = methyl.var['chromStart'].fillna(0).astype(int)
     methyl.var['chromEnd'] = methyl.var['chromEnd'].fillna(0).astype(int)
     methyl.var['strand'] = methyl.var['strand'].fillna('+')
@@ -361,6 +348,23 @@ def load_methyl_modality(methyl_file, rna, gtf_file, n_genes, plot_dir):
     fig.savefig(f"{plot_dir}/methyl_umap.png")
     plt.close()
     return methyl, methyl_genes
+
+
+def gene_regions(genes, promoters, mode="body"):
+    r"""
+    Regions of genes linked to the Hi-C anchors they overlap
+
+    ``"body"`` (default, as in the original HiGLUE): the gene body and 2kb
+    upstream, so a long gene is linked to every anchor it spans. Contacts within
+    the bodies of long, highly expressed genes track their expression (the
+    signal scGAD scores), which a promoter-only link misses. ``"promoter"``:
+    the TSS and 2kb upstream only.
+    """
+    if mode == "promoter":
+        return promoters
+    if mode != "body":
+        raise ValueError(f"Unknown gene_edges mode '{mode}'")
+    return genes.expand(2000, 0)
 
 
 def multires_extra_suffix(use_dist_norm, use_trans):
@@ -397,6 +401,7 @@ def preprocess_higlue_multires(args, glue_args):
     written, so neither preprocessing nor training needs the full dense matrix
     in memory.
     """
+    gene_edges = args.gene_edges  # args is replaced by the SCORE arguments below
     import multires_hic as mh
 
     resolutions = list(args.resolutions)
@@ -443,7 +448,9 @@ def preprocess_higlue_multires(args, glue_args):
     )
     genes = scglue.genomics.Bed(rna.var.assign(name=rna.var_names))
     promoters = genes.strand_specific_start_site().expand(2000, 0)
-    hv_promoters = promoters.loc[promoters.index.isin(
+    # regions linked to the Hi-C anchors that overlap them (see gene_regions)
+    linked = gene_regions(genes, promoters, gene_edges)
+    hv_promoters = linked.loc[linked.index.isin(
         rna.var.query("highly_variable").index
     )]
     print(f'{rna.shape[1]} genes ({rna.var["highly_variable"].sum()} highly variable)')
@@ -497,7 +504,7 @@ def preprocess_higlue_multires(args, glue_args):
         for res in resolutions:
             peaks[res] = scglue.genomics.Bed(mh.anchor_bed(grids[res], anchors[res]))
             overlap_graphs[res] = scglue.genomics.window_graph(
-                promoters, peaks[res], 0,
+                linked, peaks[res], 0,
                 attr_fn=lambda l, r, d: {"weight": 1.0, "type": "overlap", "sign": 1, "dist": 0.0}
             )
             prior = scglue.graph.compose_multigraph(
@@ -713,6 +720,7 @@ def preprocess_higlue_multires(args, glue_args):
 
 
 def preprocess_higlue(args, glue_args):
+    gene_edges = args.gene_edges  # args is replaced by the SCORE arguments below
     n_strata = args.n_strata
     resolution = args.resolution
     gtf_file = args.gtf
@@ -745,6 +753,8 @@ def preprocess_higlue(args, glue_args):
             n_loops = int(loop_q[:-1]) * 1000
     dataset_name = args.dset
     out_dir = f'data/{dataset_name}_data'
+    if args.data_dir != '':  # same location training reads from (higlue.py)
+        out_dir = f'{args.data_dir}'
     plot_dir = f'plots/{dataset_name}_plots'
     os.makedirs(out_dir, exist_ok=True)
     os.makedirs(os.path.join(out_dir, 'rna'), exist_ok=True)
@@ -760,10 +770,24 @@ def preprocess_higlue(args, glue_args):
     if bulk_hic is not None:
         bulk = cooler.Cooler(bulk_hic)
     else:
-        cool_files = cooler.fileops.list_scool_cells(dataset.scool_file)
-        cool_files = [f"{dataset.scool_file}::{cell}" for cell in cool_files]
+        # pool only the cells that are modeled (the .scool may hold more, e.g. all
+        # cells of an atlas when only its neurons are used)
+        scool_cells = cooler.fileops.list_scool_cells(dataset.scool_file)
+        modeled = set(str(cell) for cell in dataset.cell_list)
+        pooled = [cell for cell in scool_cells if cell.split('/')[-1] in modeled]
+        if not pooled:
+            print('WARNING: no modeled cell found in the .scool by name, pooling all cells')
+            pooled = scool_cells
+        print(f'Pseudobulk of {len(pooled):,} of {len(scool_cells):,} cells in the .scool')
+        cool_files = [f"{dataset.scool_file}::{cell}" for cell in pooled]
         os.makedirs('data/scools', exist_ok=True)
-        out_cool_file = f"data/scools/{dataset_name}_{resolution}_bulk.cool"
+        # the cache is keyed by the input file and the pooled cells, so a changed
+        # .scool or cell filter gets its own pseudobulk
+        stat = os.stat(dataset.scool_file)
+        bulk_key = hashlib.md5("\n".join(
+            [os.path.realpath(dataset.scool_file), str(stat.st_size), str(int(stat.st_mtime))] + pooled
+        ).encode()).hexdigest()[:8]
+        out_cool_file = f"data/scools/{dataset_name}_{resolution}_{bulk_key}_bulk.cool"
 
         try:
             bulk = cooler.Cooler(out_cool_file)
@@ -773,11 +797,15 @@ def preprocess_higlue(args, glue_args):
         except Exception as e:
             print('Could not find bulk cooler file, generating from psuedobulk...')
             set_verbosity_level(1)
-            cooler.merge_coolers(out_cool_file, cool_files, mergebuf=40000000)
-            bulk = cooler.Cooler(out_cool_file)
+            # written to a file of this process and renamed into place: preprocessing jobs of other
+            # configurations of the same cells (run in parallel) share this cache and must never read or
+            # write a partial cooler; two writers produce the same file and the last rename wins
+            tmp_cool_file = f"{out_cool_file}.tmp{os.getpid()}"
+            cooler.merge_coolers(tmp_cool_file, cool_files, mergebuf=40000000)
             if use_ice:
-                cooler.balance_cooler(bulk, cis_only=False, store=True)
-                bulk = cooler.Cooler(out_cool_file)
+                cooler.balance_cooler(cooler.Cooler(tmp_cool_file), cis_only=False, store=True)
+            os.replace(tmp_cool_file, out_cool_file)
+            bulk = cooler.Cooler(out_cool_file)
     # plot example heatmap
     mat = bulk.matrix(balance=use_ice).fetch('chr10')
     midpoint = mat.shape[0] // 2
@@ -1045,6 +1073,7 @@ def preprocess_higlue(args, glue_args):
     peaks = scglue.genomics.Bed(diagonal_anchors.assign(name=hic.var_names[diagonal_mask]))
     tss = genes.strand_specific_start_site()
     promoters = tss.expand(2000, 0)
+    linked = gene_regions(genes, promoters, gene_edges)
     if atac_file is not None:
         atac_peaks = scglue.genomics.Bed(atac_peaks.assign(name=atac_peaks['name']))
     if methyl_file is not None: 
@@ -1064,7 +1093,7 @@ def preprocess_higlue(args, glue_args):
             return 1
 
     overlap_graph = scglue.genomics.window_graph(
-        promoters, peaks, 0,
+        linked, peaks, 0,
         attr_fn=lambda l, r, d: {
             "weight": 1.0,
             "type": "overlap",
@@ -1074,8 +1103,9 @@ def preprocess_higlue(args, glue_args):
     overlap_graph = nx.DiGraph(overlap_graph)
     print('Overlap #edges:', overlap_graph.number_of_edges())
     if atac_file is not None:
+        # peaks are linked to genes over the same regions as the Hi-C anchors (--gene_edges), as in GLUE
         atac_overlap_graph = scglue.genomics.window_graph(
-            promoters, atac_peaks, 0,
+            linked, atac_peaks, 0,
             attr_fn=lambda l, r, d: {
                 "weight": 1.0,
                 "type": "overlap",
@@ -1175,6 +1205,10 @@ def preprocess_higlue(args, glue_args):
     bait_oe['peak2'] = bait_oe['peak2'].astype(str)
 
     bait_oe = bait_oe[['peak1', 'peak2', 'rank', 'dist']]
+    if getattr(args, 'no_contact_edges', False):
+        # ablation: no pseudobulk contact edges, only the adjacency of consecutive bins
+        print('--no_contact_edges: dropping', len(bait_oe), 'contact edges')
+        bait_oe = bait_oe.iloc[0:0]
     existing_hic_edges = set(zip(bait_oe['peak1'], bait_oe['peak2']))
     seq_loops = seq_loops.loc[
         [edge not in existing_hic_edges for edge in zip(seq_loops['peak1'], seq_loops['peak2'])]
@@ -1297,8 +1331,10 @@ def preprocess_higlue(args, glue_args):
 
     d_prior = dist_graph.copy()
 
-    # any genes which are connected to a highly variable peak are also highly variable
-    if atac_file is not None:
+    # Highly variable peaks / methylation features stay the ones selected per modality. (An earlier version added
+    # every gene reachable from a variable peak and vice versa, but reachable_vertices is a full transitive
+    # closure: through the Hi-C anchors it reached every gene and peak and marked them all highly variable.)
+    if False and atac_file is not None:
         rna_hvg_set = set(rna.var.query("highly_variable").index)
         print('Initial highly variable genes:', len(rna_hvg_set))
         atac_hvg_set = set(atac.var.query("highly_variable").index)
@@ -1312,7 +1348,7 @@ def preprocess_higlue(args, glue_args):
         atac.var["highly_variable"] = atac.var_names.isin(final_hv_peaks)
         print('Final highly variable genes after adding ATAC:', rna.var["highly_variable"].sum())
         print('Final highly variable ATAC peaks after adding genes:', atac.var["highly_variable"].sum())
-    if methyl_file is not None:
+    if False and methyl_file is not None:  # same transitive-closure problem as ATAC above
         rna_hvg_set = set(rna.var.query("highly_variable").index)
         methyl_hvg_set = set(methyl.var.query("highly_variable").index)
         reachable_from_hv_peaks = scglue.graph.reachable_vertices(methyl_o_prior, methyl_hvg_set)
@@ -1327,9 +1363,11 @@ def preprocess_higlue(args, glue_args):
         print('Final highly variable Methyl genes after adding genes:', methyl.var["highly_variable"].sum())
 
     if atac_file is not None:
-        atac_hvg_reachable = scglue.graph.reachable_vertices(atac_o_prior, atac.var.query("highly_variable").index)
-        atac_o_prior = atac_o_prior.subgraph(atac_hvg_reachable)
-        print(atac_o_prior)
+        # keep genes, anchors and the highly variable peaks
+        hv_peaks = set(atac.var_names[atac.var["highly_variable"]])
+        all_peaks = set(atac.var_names)
+        atac_o_prior = atac_o_prior.subgraph([n for n in atac_o_prior.nodes if n not in all_peaks or n in hv_peaks])
+        print('ATAC graph (highly variable peaks):', atac_o_prior)
     if methyl_file is not None:
         methyl_hvg_reachable = scglue.graph.reachable_vertices(methyl_o_prior, methyl.var.query("highly_variable").index)
         methyl_o_prior = methyl_o_prior.subgraph(methyl_hvg_reachable)
@@ -1366,9 +1404,9 @@ def preprocess_higlue(args, glue_args):
     hvg_reachable = scglue.graph.reachable_vertices(dcq_prior, rna.var.query("highly_variable").index)
     hic.var["dcq_highly_variable"] = [item in hvg_reachable for item in hic.var_names]
     if atac_file is not None:
-        atac_reachable = scglue.graph.reachable_vertices(dcq_prior, rna.var.query("highly_variable").index)
-        atac.var["highly_variable"] = [item in atac_reachable for item in atac.var_names]
-        print('ATAC variable Hi-C features', atac.var["highly_variable"].sum())
+        # highly variable peaks that made it into the graph (every peak overlaps an anchor; not a transitive closure)
+        atac.var["highly_variable"] = atac.var["highly_variable"] & atac.var_names.isin(list(dcq_prior.nodes))
+        print('ATAC highly variable peaks in the graph:', int(atac.var["highly_variable"].sum()))
     if methyl_file is not None:
         methyl_reachable = scglue.graph.reachable_vertices(dcq_prior, rna.var.query("highly_variable").index)
         methyl.var["highly_variable"] = [item in methyl_reachable for item in methyl.var_names]

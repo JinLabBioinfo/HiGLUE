@@ -1,0 +1,271 @@
+,genebody,dataset,anchor
+L2/3,L2/3,pfc,
+Pvalb,Pvalb,pfc,
+Sst,Sst,pfc,
+L5,L4,pfc,
+Ndnf,Ndnf,pfc,
+L6,L6,pfc,
+Vip,Vip,pfc,
+L4,L4,pfc,
+L2/3,,pfc,L2/3
+L4,,pfc,L4
+L5,,pfc,L4
+L6,,pfc,L6
+Ndnf,,pfc,Ndnf
+Pvalb,,pfc,Pvalb
+Sst,,pfc,Sst
+Vip,,pfc,Vip
+L2/3,L2/3,pfc_full,
+Astro,Astro,pfc_full,
+Pvalb,Pvalb,pfc_full,
+MP,MG,pfc_full,
+Endo,VEC,pfc_full,
+Sst,Sst,pfc_full,
+OPC,OPC,pfc_full,
+ODC,ODC,pfc_full,
+MG,MG,pfc_full,
+L5,L4,pfc_full,
+Ndnf,Ndnf,pfc_full,
+L6,L6,pfc_full,
+Vip,Vip,pfc_full,
+L4,L4,pfc_full,
+Astro,,pfc_full,Astro
+Endo,,pfc_full,VEC
+L2/3,,pfc_full,L2/3
+L4,,pfc_full,L4
+L5,,pfc_full,L4
+L6,,pfc_full,L6
+MG,,pfc_full,MG
+MP,,pfc_full,MG
+Ndnf,,pfc_full,Ndnf
+ODC,,pfc_full,ODC
+OPC,,pfc_full,OPC
+Pvalb,,pfc_full,Pvalb
+Sst,,pfc_full,Sst
+Vip,,pfc_full,Vip
+Foxp2,MSN-D1,human_brain,
+Amy-Exc,Amy-Exc,human_brain,
+Lamp5,Lamp5,human_brain,
+MSN-D1,MSN-D2,human_brain,
+Vip,Vip,human_brain,
+L6b,L6b,human_brain,
+SubCtx-Cplx,Vip,human_brain,
+Pvalb,Pvalb,human_brain,
+Pvalb-ChC,Pvalb-ChC,human_brain,
+Lamp5-Lhx6,Lamp5-Lhx6,human_brain,
+Sst,Sst,human_brain,
+L6-CT,L6-CT,human_brain,
+Chd7,Lamp5-Lhx6,human_brain,
+L6-IT,L6-IT,human_brain,
+Sncg,Sncg,human_brain,
+MSN-D2,MSN-D2,human_brain,
+L2/3-IT,L2/3-IT,human_brain,
+L6-IT-Car3,L6-IT-Car3,human_brain,
+L5/6-NP,L5/6-NP,human_brain,
+L5-IT,L5-IT,human_brain,
+L4-IT,L4-IT,human_brain,
+L5-ET,L5-ET,human_brain,
+Amy-Exc,,human_brain,Amy-Exc
+Chd7,,human_brain,Lamp5-Lhx6
+Foxp2,,human_brain,MSN-D1
+L2/3-IT,,human_brain,L2/3-IT
+L4-IT,,human_brain,L4-IT
+L5-ET,,human_brain,L5-ET
+L5-IT,,human_brain,L5-IT
+L5/6-NP,,human_brain,L5/6-NP
+L6-CT,,human_brain,L6-CT
+L6-IT,,human_brain,L6-IT
+L6-IT-Car3,,human_brain,L6-IT-Car3
+L6b,,human_brain,L6b
+Lamp5,,human_brain,Lamp5
+Lamp5-Lhx6,,human_brain,Lamp5-Lhx6
+MSN-D1,,human_brain,MSN-D2
+MSN-D2,,human_brain,MSN-D2
+Pvalb,,human_brain,Pvalb
+Pvalb-ChC,,human_brain,Pvalb-ChC
+Sncg,,human_brain,Sncg
+Sst,,human_brain,Sst
+SubCtx-Cplx,,human_brain,Vip
+Vip,,human_brain,Vip
+Beta,Beta,islet_atlas,
+Epi Aci,Epi Aci,islet_atlas,
+Alpha,Alpha,islet_atlas,
+Epi Duc,Epi Duc,islet_atlas,
+Delta,Delta,islet_atlas,
+PSC_Quiescent,PSC,islet_atlas,
+Macrophage,Macrophage,islet_atlas,
+Endothelial,Endothelial,islet_atlas,
+PSC,PSC_Quiescent,islet_atlas,
+Gamma,Gamma,islet_atlas,
+Schwann,Alpha,islet_atlas,
+T cell,Delta,islet_atlas,
+Alpha,,islet_atlas,Alpha
+Beta,,islet_atlas,Beta
+Delta,,islet_atlas,Delta
+Endothelial,,islet_atlas,Endothelial
+Epi Aci,,islet_atlas,Epi Aci
+Epi Duc,,islet_atlas,Epi Duc
+Gamma,,islet_atlas,Gamma
+Macrophage,,islet_atlas,Macrophage
+PSC,,islet_atlas,PSC
+PSC_Quiescent,,islet_atlas,PSC_Quiescent
+Schwann,,islet_atlas,PSC
+T cell,,islet_atlas,Macrophage
+Ex1,Ex1,hires_brain,
+Ex2,Ex2,hires_brain,
+In1,In1,hires_brain,
+Ast,Ast,hires_brain,
+Oli,Oli,hires_brain,
+In2,In2,hires_brain,
+Ex3,Ex3,hires_brain,
+Ast,,hires_brain,Ast
+Ex1,,hires_brain,Ex1
+Ex2,,hires_brain,Ex2
+Ex3,,hires_brain,Ex3
+In1,,hires_brain,In1
+In2,,hires_brain,In2
+Oli,,hires_brain,Oli
+L5 IT CTX,L5 IT CTX,gageseq_cortex,
+L5 IT RSP,L5 IT RSP,gageseq_cortex,
+L2/3 IT CTX c,L2/3 IT CTX c,gageseq_cortex,
+L6 CT CTX a,L6 CT CTX b,gageseq_cortex,
+L4/5 IT CTX,L4/5 IT CTX,gageseq_cortex,
+Astro,Astro,gageseq_cortex,
+L5/6 NP CTX,L5/6 NP CTX,gageseq_cortex,
+L2/3 IT CTX b,L2/3 IT CTX b,gageseq_cortex,
+L6 IT CTX,L6 IT CTX,gageseq_cortex,
+Sst a,Sst a,gageseq_cortex,
+Pvalb b,Pvalb a,gageseq_cortex,
+L5 PT CTX,L5 PT CTX,gageseq_cortex,
+L4 IT CTX,L4/5 IT CTX,gageseq_cortex,
+ODC,ODC,gageseq_cortex,
+OPC,OPC,gageseq_cortex,
+L6 CT CTX b,L6 CT CTX b,gageseq_cortex,
+VLMC,VLMC,gageseq_cortex,
+Vip,Vip,gageseq_cortex,
+L2/3 IT CTX a,L2/3 IT CTX a,gageseq_cortex,
+L2 IT RvPP,L2 IT RvPP,gageseq_cortex,
+Pvalb a,Pvalb a,gageseq_cortex,
+Lamp5,Lamp5,gageseq_cortex,
+Meis2,Meis2,gageseq_cortex,
+Micro,Micro,gageseq_cortex,
+L6b CTX,L6b CTX,gageseq_cortex,
+L2/3 IT RSP,L2/3 IT RSP,gageseq_cortex,
+Sncg,Sncg,gageseq_cortex,
+Sst b,Sst b,gageseq_cortex,
+Astro,,gageseq_cortex,Astro
+L2 IT RvPP,,gageseq_cortex,L2 IT RvPP
+L2/3 IT CTX a,,gageseq_cortex,L2/3 IT CTX a
+L2/3 IT CTX b,,gageseq_cortex,L2/3 IT CTX b
+L2/3 IT CTX c,,gageseq_cortex,L2/3 IT CTX b
+L2/3 IT RSP,,gageseq_cortex,L2/3 IT RSP
+L4 IT CTX,,gageseq_cortex,L4 IT CTX
+L4/5 IT CTX,,gageseq_cortex,L4/5 IT CTX
+L5 IT CTX,,gageseq_cortex,L5 IT CTX
+L5 IT RSP,,gageseq_cortex,L5 IT RSP
+L5 PT CTX,,gageseq_cortex,L5 PT CTX
+L5/6 NP CTX,,gageseq_cortex,L5/6 NP CTX
+L6 CT CTX a,,gageseq_cortex,L6 CT CTX a
+L6 CT CTX b,,gageseq_cortex,L6 CT CTX b
+L6 IT CTX,,gageseq_cortex,L6 IT CTX
+L6b CTX,,gageseq_cortex,L6b CTX
+Lamp5,,gageseq_cortex,Lamp5
+Meis2,,gageseq_cortex,Meis2
+Micro,,gageseq_cortex,Micro
+ODC,,gageseq_cortex,ODC
+OPC,,gageseq_cortex,OPC
+Pvalb a,,gageseq_cortex,Pvalb a
+Pvalb b,,gageseq_cortex,Pvalb b
+Sncg,,gageseq_cortex,Sncg
+Sst a,,gageseq_cortex,Sst a
+Sst b,,gageseq_cortex,Sst b
+VLMC,,gageseq_cortex,VLMC
+Vip,,gageseq_cortex,Vip
+B-NK,B-NK,gageseq_bm,
+HSC,HSC,gageseq_bm,
+LMPP,LMPP,gageseq_bm,
+MLP,MLP,gageseq_bm,
+MPP,LMPP,gageseq_bm,
+MEP,MEP,gageseq_bm,
+B-NK,,gageseq_bm,B-NK
+HSC,,gageseq_bm,HSC
+LMPP,,gageseq_bm,LMPP
+MEP,,gageseq_bm,MEP
+MLP,,gageseq_bm,MLP
+MPP,,gageseq_bm,HSC
+ITL5GL,ITL5GL,droplet_cortex,
+ITL23GL,ITL23GL,droplet_cortex,
+CTGL,CTGL,droplet_cortex,
+OGC,OGC,droplet_cortex,
+D12MSN,D12MSN,droplet_cortex,
+ITL6GL,ITL6GL,droplet_cortex,
+ASC,ASC,droplet_cortex,
+VIPGA,VIPGA,droplet_cortex,
+ETL5GL,ETL5GL,droplet_cortex,
+PTGL,ITL23GL,droplet_cortex,
+OPC,OPC,droplet_cortex,
+PVGA,PVGA,droplet_cortex,
+NPGL,NPGL,droplet_cortex,
+CLAGL,CLAGL,droplet_cortex,
+MGL,MGL,droplet_cortex,
+VEC,PVGA,droplet_cortex,
+ASC,,droplet_cortex,ASC
+CLAGL,,droplet_cortex,CLAGL
+CTGL,,droplet_cortex,CTGL
+D12MSN,,droplet_cortex,D12MSN
+ETL5GL,,droplet_cortex,ETL5GL
+ITL23GL,,droplet_cortex,ITL23GL
+ITL5GL,,droplet_cortex,ITL5GL
+ITL6GL,,droplet_cortex,ITL6GL
+MGL,,droplet_cortex,MGL
+NPGL,,droplet_cortex,NPGL
+OGC,,droplet_cortex,OGC
+OPC,,droplet_cortex,OPC
+PTGL,,droplet_cortex,ITL5GL
+PVGA,,droplet_cortex,PVGA
+VEC,,droplet_cortex,ITL5GL
+VIPGA,,droplet_cortex,VIPGA
+Alpha,Endothelial,islet_inhouse,
+Beta,Beta,islet_inhouse,
+Alpha,,islet_inhouse,Alpha
+Beta,,islet_inhouse,Beta
+ExE ectoderm,ExE ectoderm,hires_embryo_full_nomito,
+neural ectoderm,neural ectoderm,hires_embryo_full_nomito,
+ExE mesoderm,ExE mesoderm,hires_embryo_full_nomito,
+ExE endoderm,ExE endoderm,hires_embryo_full_nomito,
+blood,blood,hires_embryo_full_nomito,
+early mesoderm,early mesoderm,hires_embryo_full_nomito,
+epithelial cells,epithelial cells,hires_embryo_full_nomito,
+early mesenchyme,mix late mesenchyme,hires_embryo_full_nomito,
+endoderm,endoderm,hires_embryo_full_nomito,
+epiblast and PS,neural ectoderm,hires_embryo_full_nomito,
+NMP,neural tube,hires_embryo_full_nomito,
+neural tube,early neurons,hires_embryo_full_nomito,
+intermediate mesoderm,intermediate mesoderm,hires_embryo_full_nomito,
+radial glias,radial glias,hires_embryo_full_nomito,
+oligodendrocytes and progenitors,oligodendrocytes and progenitors,hires_embryo_full_nomito,
+mix late mesenchyme,mix late mesenchyme,hires_embryo_full_nomito,
+early neurons,early neurons,hires_embryo_full_nomito,
+schwann cell precursors,schwann cell precursors,hires_embryo_full_nomito,
+notochord,radial glias,hires_embryo_full_nomito,
+myocytes,myocytes,hires_embryo_full_nomito,
+ExE ectoderm,,hires_embryo_full_nomito,ExE ectoderm
+ExE endoderm,,hires_embryo_full_nomito,ExE endoderm
+ExE mesoderm,,hires_embryo_full_nomito,ExE mesoderm
+NMP,,hires_embryo_full_nomito,neural tube
+blood,,hires_embryo_full_nomito,blood
+early mesenchyme,,hires_embryo_full_nomito,early mesenchyme
+early mesoderm,,hires_embryo_full_nomito,early mesoderm
+early neurons,,hires_embryo_full_nomito,early neurons
+endoderm,,hires_embryo_full_nomito,endoderm
+epiblast and PS,,hires_embryo_full_nomito,epiblast and PS
+epithelial cells,,hires_embryo_full_nomito,epithelial cells
+intermediate mesoderm,,hires_embryo_full_nomito,intermediate mesoderm
+mix late mesenchyme,,hires_embryo_full_nomito,mix late mesenchyme
+myocytes,,hires_embryo_full_nomito,myocytes
+neural ectoderm,,hires_embryo_full_nomito,neural ectoderm
+neural tube,,hires_embryo_full_nomito,neural tube
+notochord,,hires_embryo_full_nomito,notochord
+oligodendrocytes and progenitors,,hires_embryo_full_nomito,oligodendrocytes and progenitors
+radial glias,,hires_embryo_full_nomito,radial glias
+schwann cell precursors,,hires_embryo_full_nomito,schwann cell precursors

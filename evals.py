@@ -58,6 +58,17 @@ from sklearn.metrics import (
 #: ``sorted_patterns`` defines a validation set of FACS-sorted cells whose true
 #: label is encoded in the cell name.
 DATASET_CONFIGS: Dict[str, dict] = {
+    # Droplet Hi-C cortex (Chang 2025 labels) with the SNARE-seq reference (Chen 2019): every SNARE type to the Droplet
+    # type of the highest correlation of type mean expression (z-scored over types, union of 3,000 HVGs per
+    # dataset); Endo and Peri to VEC (vascular; their best correlations are < 0.1). D12MSN and PTGL have no SNARE type.
+    "droplet_snare": {
+        "label_map": {
+            "Ast": "ASC", "Clau": "CLAGL", "E2Rasgrf2": "ITL23GL", "E3Rmst": "ITL5GL", "E3Rorb": "ITL5GL",
+            "E4Il1rapl2": "ITL5GL", "E4Thsd7a": "ITL5GL", "E5Galnt14": "ITL6GL", "E5Parm1": "ETL5GL",
+            "E5Sulf1": "CTGL", "E5Tshz2": "NPGL", "E6Tle4": "CTGL", "Endo": "VEC", "InN": "VIPGA", "InP": "PVGA",
+            "InS": "PVGA", "InV": "VIPGA", "Mic": "MGL", "OPC": "OPC", "OliI": "OGC", "OliM": "OGC", "Peri": "VEC",
+        },
+    },
     "islet": {
         "match_labels": ("Epi Aci", "Epi Duc"),
         "label_map": {
@@ -69,6 +80,8 @@ DATASET_CONFIGS: Dict[str, dict] = {
             "Duct_sub2": "Epi Duc",  # in-house reference
             "Alpha_Proliferating": "Alpha",
             "Proliferating_Alpha": "Alpha",  # in-house reference
+            "Quiescent_PSC": "PSC_Quiescent",  # in-house reference (PancDB name)
+            "Proliferating_PSC": "PSC",  # in-house reference
             "PP": "Gamma",  # pancreatic polypeptide cells
         },
         "sorted_patterns": {"Alpha": "alpha", "Beta": "beta"},
@@ -462,6 +475,27 @@ def integration_metrics(
             f"{prefix}paired_foscttm": float((fx.mean() + fy.mean()) / 2),
             f"{prefix}n_paired": int(shared.size),
         })
+    # co-assays without the reference: other modalities measured in the Hi-C cells themselves (e.g. snm3C-seq
+    # methylation), matched to the Hi-C cell of the same name: <modality>_hic_paired_foscttm, ...
+    hic = adatas.get("hic")
+    if hic is not None:
+        hic_index = pd.Index(hic.obs_names)
+        for key, adata in adatas.items():
+            if key in (reference, "hic", "gad"):
+                continue
+            shared = pd.Index(adata.obs_names).intersection(hic_index)
+            if shared.empty:
+                continue
+            if shared.size > max_paired:
+                shared = pd.Index(np.random.default_rng(seed).choice(shared, max_paired, replace=False))
+            qx = np.asarray(adata.obsm[rep])[pd.Index(adata.obs_names).get_indexer(shared)]
+            hx = np.asarray(hic.obsm[rep])[hic_index.get_indexer(shared)]
+            fx, fy = scglue.metrics.foscttm(qx, hx)
+            metrics.update({
+                f"{key}_hic_paired_distance": float(np.linalg.norm(qx - hx, axis=1).mean()),
+                f"{key}_hic_paired_foscttm": float((fx.mean() + fy.mean()) / 2),
+                f"{key}_hic_n_paired": int(shared.size),
+            })
     return metrics
 
 
@@ -814,6 +848,11 @@ def evaluate(
     data = {k: _light_copy(v, rep) for k, v in adatas.items()}
     for k, adata in data.items():
         adata.obs[label_key] = adata.obs[label_key].astype(str)
+        if label_map and k != reference:
+            # a query modality annotated in the reference's vocabulary (e.g. the ATAC of an RNA + ATAC co-assay
+            # used as the reference) is scored in the query vocabulary, like the harmonized predictions; labels
+            # already in the query vocabulary are not keys of the map and stay as they are
+            adata.obs[label_key] = harmonize(adata.obs[label_key], label_map)
         adata.obs["domain"] = k
     ref = data[reference]
     metrics, plots = {}, {}

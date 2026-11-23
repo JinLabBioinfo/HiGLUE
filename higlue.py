@@ -158,6 +158,14 @@ if __name__ == '__main__':
     glue_parser.add_argument('--n_strata', type=int, default=10)
     glue_parser.add_argument('--use_ice', action='store_true')
     glue_parser.add_argument('--use_dist_norm', action='store_true')
+    glue_parser.add_argument('--no_contact_edges', action='store_true',
+                             help='ablation: build the guidance graph without pseudobulk contact edges '
+                                  '(gene-bin overlap and adjacency of consecutive bins only; single resolution)')
+    glue_parser.add_argument(
+        '--gene_edges', choices=['body', 'promoter'], default='body',
+        help='link each gene to the Hi-C bins overlapping its body (and 2kb upstream; the '
+             'original HiGLUE) or only to the bin at its promoter'
+    )
     glue_parser.add_argument('--viz_rna', action='store_true')
     glue_parser.add_argument('--load_rna', action='store_true')
     glue_parser.add_argument('--preprocess', action='store_true')
@@ -211,7 +219,7 @@ if __name__ == '__main__':
     glue_parser.add_argument('--lam_cycle', type=float, default=0.02)
     glue_parser.add_argument('--suffix', type=str, default='2d')
     glue_parser.add_argument('--exp_name', type=str, default=None)
-    glue_parser.add_argument('--save_interval', type=int, default=100)
+    glue_parser.add_argument('--save_interval', type=int, default=10)
     glue_parser.add_argument('--latent_dim', type=int, default=64)
     glue_parser.add_argument('--batch_size', type=int, default=128)
     glue_parser.add_argument('--h_dim', type=int, default=128)
@@ -222,6 +230,40 @@ if __name__ == '__main__':
     glue_parser.add_argument('--max_epochs', type=int, default=None)
     glue_parser.add_argument('--wandb', action='store_true')
     glue_parser.add_argument('--balance', action='store_true')
+    glue_parser.add_argument(
+        '--comp_weight', choices=['auto', 'none', 'graph'], default='auto',
+        help="weights of the RNA cells in the modality discriminator: 'graph' estimates the "
+             "Hi-C cell type composition without the adversary (Hi-C only clusters named "
+             "through the guidance graph, graph_match.py) and weights every RNA type so the "
+             "reference has that composition, so the alignment does not have to move Hi-C "
+             "cells onto over-represented reference types (a label-free --match_composition; "
+             "single resolution, not with --balance). 'none' weights all cells equally. "
+             "'auto' (default) is 'graph' for single resolution models of unpaired data, 'none' "
+             "when most Hi-C cells are also RNA cells (same composition by construction) or with "
+             "--resolutions, --balance or --match_composition"
+    )
+    glue_parser.add_argument('--comp_weight_temperature', type=float, default=0.0,
+                             help='0 (default): the composition estimate counts the cells of every cluster '
+                                  'toward its name; > 0 spreads every cluster over the types by a softmax of '
+                                  'its match z-scores at this temperature (helped PFC at a too coarse Leiden '
+                                  'resolution, hurt the islet atlas, where similar types have close z-scores)')
+    glue_parser.add_argument('--comp_weight_floor', type=float, default=0.1,
+                             help='share of a reference type\'s weight kept when the estimate '
+                                  'does not find it in the Hi-C cells')
+    glue_parser.add_argument('--comp_weight_min_depth', type=float, default=0,
+                             help='estimate the Hi-C composition (--comp_weight graph) from the cells with at '
+                                  'least this many contacts only (0: all cells). Shallow cells cluster by depth, '
+                                  'and their cluster takes one name (in-house islets at a 10,000 cutoff: 43%% '
+                                  '"Gamma")')
+    glue_parser.add_argument('--comp_weight_max_ratio', type=float, default=0,
+                             help='cap the composition estimate of every type at this multiple of its reference '
+                                  'share, the excess spread over the other types (0: no cap; '
+                                  'graph_match.cap_composition)')
+    glue_parser.add_argument('--methyl_comp_weight', action='store_true',
+                             help='with --comp_weight graph and --methyl_file: weight the methylation cells in the '
+                                  'discriminator too, by their own cell type labels, toward the same estimated '
+                                  'Hi-C composition (for methylation from another dataset with a different '
+                                  'composition, e.g. the atlas methylation with in-house Hi-C)')
     glue_parser.add_argument('--normalize_u', action='store_true')
     glue_parser.add_argument('--binarize', action='store_true')
     glue_parser.add_argument('--use_batch', type=str, default=None)
@@ -254,6 +296,17 @@ if __name__ == '__main__':
     glue_parser.add_argument('--structure_top_loci', type=int, default=15,
                              help='cell type specific loci per pool and feature')
     glue_parser.add_argument(
+        '--decoder', choices=['composition_attention', 'composition', 'attention'],
+        default='composition_attention',
+        help="how the Hi-C decoder builds the loading of a contact between anchors i and "
+             "i + k: 'composition_attention' composes both anchors per dimension "
+             "(w1 * v_i + w2 * v_(i+k)) and refines the result with a pre-norm local attention "
+             "and feed-forward block (the multi-resolution decoder used for the islet results); "
+             "'composition' is the linear composition alone; 'attention' transforms v_i and "
+             "mixes in neighboring anchors with local attention, without the partner anchor "
+             "(the earlier single resolution decoder)"
+    )
+    glue_parser.add_argument(
         '--strata_weights', choices=['cell', 'global'], default='cell',
         help="how the library size is split across strata: 'cell' predicts it "
              "from the cell embedding (lets the model represent per-cell "
@@ -265,10 +318,21 @@ if __name__ == '__main__':
              'log transform of the encoder input'
     )
     glue_parser.add_argument(
+        '--decay_norm', choices=['none', 'cell'], default='none',
+        help="per-cell distance-decay normalization of the Hi-C data (single resolution): "
+             "'cell' scales every stratum of a cell by the cell's own total in that stratum "
+             "before encoding, and decodes every stratum with its observed total as library "
+             "size, so the embedding does not carry how a cell's contacts are spread over "
+             "distances (e.g. library differences between donors); overrides --strata_weights. "
+             "'none' normalizes by the cell's total only"
+    )
+    glue_parser.add_argument(
         '--lam_downsample', type=float, default=0.0,
         help='weight of the depth consistency loss, which pulls a cell and a '
              'downsampled copy of it to the same embedding (0 disables it)'
     )
+    glue_parser.add_argument('--lam_depth', type=float, default=0.05,
+                             help='weight of the read-depth adversary on the Hi-C embedding (0 disables it)')
     glue_parser.add_argument('--downsample_min', type=float, default=0.3)
     glue_parser.add_argument('--downsample_max', type=float, default=0.9)
 
@@ -327,9 +391,9 @@ if __name__ == '__main__':
                              default=(2, 8))
     glue_parser.add_argument('--multires_conv_pool_width', type=int, default=32)
     glue_parser.add_argument(
-        '--multires_use_attn', action=argparse.BooleanOptionalAction, default=True,
-        help='use local attention over anchor embeddings in the '
-             'multi-resolution decoder (on by default)'
+        '--multires_use_attn', action=argparse.BooleanOptionalAction, default=None,
+        help='add local attention over anchor embeddings to the composition in the '
+             'multi-resolution decoder (default: on with --decoder attention)'
     )
     glue_parser.add_argument(
         '--multires_attn_window', type=int, default=None,
@@ -345,6 +409,62 @@ if __name__ == '__main__':
         '--backed', action='store_true',
         help='read the Hi-C dataset from disk one minibatch at a time'
     )
+    # baselines evaluated on the same cells after training (results in <eval_dir>/baselines)
+    glue_parser.add_argument(
+        '--baselines', nargs='+', choices=['scgad', 'scgad_cca', 'graph_match', 'loops'], default=[],
+        help='also run these baselines on the cells HiGLUE was trained on: '
+             'scgad = scGAD gene scores integrated with the RNA by Harmony (scgad.py); '
+             'graph_match = Hi-C only clusters named through the guidance graph, without '
+             'any composition matching (graph_match.py; single resolution); '
+             'loops = unsupervised embedding from contacts at given loops only, with a shifted-loop '
+             'control (loop_features.py; needs --loop_baseline_loops)'
+    )
+    glue_parser.add_argument('--loop_baseline_loops', type=str, default=None,
+                             help='loops of the loops baseline: TSV with chrom, pos1, pos2 in the coordinates '
+                                  'of --scgad_scool (or --scool)')
+    glue_parser.add_argument('--loop_baseline_res', type=int, default=100_000,
+                             help='pixel resolution of the loops baseline (contacts are read from the '
+                                  'high-resolution scool and binned to loop pixels of this size)')
+    glue_parser.add_argument('--loop_baseline_norm', choices=['lsi', 'depth', 'oe', 'ice', 'ice_oe'],
+                             default='lsi', help='feature values of the loops baseline (lsi: Tian et al. 2023)')
+    glue_parser.add_argument('--graph_match_resolution', type=lambda v: v if v == 'auto' else float(v),
+                             default='auto',
+                             help='Leiden resolution of the Hi-C only clusters of graph_match (the baseline '
+                                  'and --comp_weight graph); auto scans several and keeps the one whose '
+                                  'clusters match their types best')
+    glue_parser.add_argument('--scgad_scool', type=str, default=None,
+                             help='single-cell coolers for scGAD (default: --scool; '
+                                  'scGAD is meant for high resolution, e.g. 5kb)')
+    glue_parser.add_argument('--scgad_features', type=int, default=2000,
+                             help='variable RNA genes used to co-embed GAD scores and RNA')
+    glue_parser.add_argument('--scgad_pcs', type=int, default=30)
+    glue_parser.add_argument('--scgad_jobs', type=int, default=8,
+                             help='processes reading cells for scGAD')
+    # gene-body contact counts of the Hi-C cells as a third, paired modality (scgad.gad_modality)
+    glue_parser.add_argument(
+        '--gad_modality', action=argparse.BooleanOptionalAction, default=None,
+        help='add the scGAD gene-body contact counts of the Hi-C cells as a modality "gad", '
+             'paired with the Hi-C cells, with one feature per variable gene linked to that gene '
+             '(default: on for single resolution models; --no-gad_modality turns it off). Pass a '
+             'high resolution .scool with --gad_scool or --scgad_scool'
+    )
+    glue_parser.add_argument('--gad_scool', type=str, default=None,
+                             help='single-cell coolers for the gene-body counts '
+                                  '(default: --scgad_scool, else --scool); finer resolutions separate more genes')
+    glue_parser.add_argument('--gad_weight', type=float, default=1.0,
+                             help='modality weight of the gene-body counts (Hi-C uses --hic_weight)')
+    glue_parser.add_argument('--gad_min_cells', type=float, default=0.01,
+                             help='fraction of cells a gene needs gene-body contacts in')
+    # figures during training (<exp_name>/viz), see scglue.models.plugins.EmbeddingVisualizer
+    glue_parser.add_argument(
+        '--viz', choices=['full', 'basic', 'none'], default='full',
+        help='training figures every --save_interval epochs: full (cells, joint, confusion, '
+             'decoder parameters, feature embeddings, loci), basic (no feature embeddings or '
+             'loci) or none (metrics only)'
+    )
+    glue_parser.add_argument('--viz_loci', type=int, default=3,
+                             help='loci drawn during training: the first N genes of --gene_list '
+                                  'found in the graph')
 
     glue_args = sys.argv.index('SCORE')
     args = glue_parser.parse_args(sys.argv[1:glue_args] + sys.argv[glue_args + 1:])
@@ -369,7 +489,7 @@ if __name__ == '__main__':
     hic_type = 'raw'
     if args.use_ice:
         hic_type = 'ice'
-    loop_q = args.loop_q
+    loop_q = str(float(args.loop_q))  # as preprocessing writes it (0.90 -> 0.9)
     use_trans = args.use_trans
     depth_correction = not args.no_depth_correction
     hic_weight = args.hic_weight
@@ -381,6 +501,11 @@ if __name__ == '__main__':
     coassay = args.coassay
     if coassay is None:
         coassay = []
+    if args.gad_modality is None:
+        args.gad_modality = not args.resolutions
+    if args.gad_modality:
+        # the gene-body counts are measured on the Hi-C cells themselves
+        coassay = sorted(set(coassay) | {'hic', 'gad'})
     exp_name = args.exp_name
     save_interval = args.save_interval
     latent_dim = args.latent_dim
@@ -397,7 +522,9 @@ if __name__ == '__main__':
     graph_file_suffix = f"{prior_name}_prior_{resolution}_{hic_type}_{loop_q}_{suffix}_{n_strata}"
     use_rep = None
     min_depth = args.min_depth
-    use_attn = True
+    use_attn = args.decoder != 'composition'
+    if args.multires_use_attn is None:
+        args.multires_use_attn = use_attn
     binarize = args.binarize
     use_wandb = args.wandb
     skip_balance = not args.balance
@@ -408,6 +535,10 @@ if __name__ == '__main__':
     methyl_file = args.methyl_file
 
     multires = bool(args.resolutions)
+    if multires and args.decay_norm != 'none':
+        glue_parser.error('--decay_norm is only implemented for single resolution models')
+    if args.comp_weight == 'graph' and (multires or args.balance):
+        glue_parser.error('--comp_weight is for single resolution models without --balance')
     if multires:
         # Resolutions are always ordered coarse to fine
         resolutions = sorted(args.resolutions, key=mh.parse_resolution, reverse=True)
@@ -503,6 +634,8 @@ if __name__ == '__main__':
 
         celltypes = list(hic.obs['celltype'].unique())
         if 'pfc' in dataset_name:
+            # pfc_full: all 14 snm3C-seq cell types (datasets/pfc_full); pfc: the neurons only
+            pfc_full = 'pfc_full' in dataset_name
             neurons_rna_celltypes = ['IN-PV', 'IN-SST', 'IN-VIP', 'IN-SV2C', 'Neu-mat',
                       'L2/3', 'L4', 'L5', 'L5/6', 'L6', 'L5/6-CC']
             neurons_hic_celltypes = ['L2/3', 'L4', 'L5', 'L6', 'Ndnf', 'Pvalb', 'Sst', 'Vip']  
@@ -525,11 +658,13 @@ if __name__ == '__main__':
                                 'Neu-NRGN-II': 'Neu',
                                 'Neu-mat': 'Neu',
                                 'OPC': 'OPC',
-                                'Oligodendrocyte': 'ODC'}
+                                'Oligodendrocyte': 'ODC',
+                                'Oligodendrocytes': 'ODC'}  # the label in brain_autism.h5ad
             rna = rna[rna.obs['region'] == 'PFC', :]
             rna = rna[~rna.obs['celltype'].isin(['Neu-NRGN-I', 'Neu-NRGN-II', 'Neu-mat'])]
             #rna = rna[~rna.obs['celltype'].isin(['Neu-NRGN-I', 'Neu-NRGN-II'])]
-            rna = rna[rna.obs['celltype'].isin(neurons_rna_celltypes)]
+            if not pfc_full:
+                rna = rna[rna.obs['celltype'].isin(neurons_rna_celltypes)]
             rna.obs['celltype'] = rna.obs['celltype'].map(rna_celltype_map)
         elif 'human_brain' in dataset_name:
             neurons_rna_celltypes = ['IN-PV', 'IN-SST', 'IN-VIP', 'IN-SV2C', 'Neu-mat',
@@ -634,7 +769,11 @@ if __name__ == '__main__':
                             'use_trans': use_trans,
                             'normalize_u': normalize_u,
                             'use_attn': args.multires_use_attn if multires else use_attn,
+                            'decoder': args.decoder,
                             'distances_normalized': args.use_dist_norm,
+                            'gene_edges': args.gene_edges,
+                            'gad_modality': args.gad_modality,
+                            'gad_weight': args.gad_weight if args.gad_modality else None,
                             'binarize': binarize,
                             'lr': lr,
                             'hic_weight': hic_weight,
@@ -645,6 +784,11 @@ if __name__ == '__main__':
                             'lam_downsample': args.lam_downsample,
                             'strata_weights': args.strata_weights,
                             'strata_input_norm': not args.no_strata_input_norm,
+                            'decay_norm': args.decay_norm,
+                            'comp_weight': args.comp_weight,
+                            'comp_weight_floor': args.comp_weight_floor if args.comp_weight != 'none' else None,
+                            'comp_weight_temperature': args.comp_weight_temperature if args.comp_weight != 'none' else None,
+                            'graph_match_resolution': args.graph_match_resolution,
                             'depth_correction': depth_correction,
                             'use_batch': use_batch,
                             'seed': seed,
@@ -700,6 +844,95 @@ if __name__ == '__main__':
             atac.obs_names_make_unique()
         if methyl_file is not None:
             methyl.obs_names_make_unique()
+        if args.gad_modality:
+            import scgad
+            if not (args.gad_scool or args.scgad_scool):
+                print(f"WARNING: gene-body counts from --scool ({args.scool}); a high resolution "
+                      f".scool (--gad_scool, e.g. 5kb) separates genes far better")
+            gad = scgad.gad_modality(
+                rna, hic, args.gad_scool or args.scgad_scool or args.scool,
+                genes=rna.var_names[rna.var["highly_variable"]], min_cells=args.gad_min_cells,
+                n_jobs=args.scgad_jobs, cache_dir=os.path.join(out_dir, "baselines")
+            )
+            scgad.add_gad_edges(prior, gad)
+            scglue.models.configure_dataset(gad, "NB", use_highly_variable=True, use_layer="counts",
+                                            use_batch="batch", use_depth="depth" if depth_correction else None,
+                                            use_obs_names=True)
+            print(f"Number of paired Hi-C / gene-body cells: {gad.n_obs}")
+
+        eval_dir = args.eval_dir or os.path.join(exp_name or "glue", "eval")
+        graph_match_result = None
+        comp_weight = args.comp_weight
+        if comp_weight == 'auto':
+            paired = float(np.mean(hic.obs_names.isin(rna.obs_names))) >= 0.5
+            comp_weight = 'none' if (multires or args.balance or args.match_composition or paired) else 'graph'
+            print(f"--comp_weight auto: {comp_weight}"
+                  + (" (the Hi-C cells are paired with RNA cells)" if paired else ""))
+            if use_wandb:
+                wandb.config.update({"comp_weight": comp_weight}, allow_val_change=True)
+        if comp_weight == 'graph':
+            # Hi-C composition estimated without the adversary (graph_match.py),
+            # given to the reference through the discriminator weights of its cells
+            import graph_match
+            hic_cw = hic
+            if args.comp_weight_min_depth > 0:
+                depth_cw = hic.obs["read_depth" if "read_depth" in hic.obs else "depth"].astype(float)
+                hic_cw = hic[(depth_cw >= args.comp_weight_min_depth).to_numpy()].copy()
+                print(f"Composition estimate from the {hic_cw.n_obs} of {hic.n_obs} Hi-C cells with >= "
+                      f"{args.comp_weight_min_depth:.0f} contacts")
+            graph_match_result = graph_match.match(
+                rna, hic_cw, prior, "celltype",
+                evals.get_label_map(dataset_name, hic.obs['celltype'], rna.obs['celltype']),
+                resolution=args.graph_match_resolution, seed=seed
+            )
+            hic_estimate = graph_match.estimate_composition(graph_match_result, args.comp_weight_temperature)
+            weights, weight_table = graph_match.composition_weights(
+                graph_match_result["rna_labels"], hic_estimate,
+                floor=args.comp_weight_floor, max_ratio=args.comp_weight_max_ratio or None
+            )
+            rna.obs["comp_weight"] = weights
+            rna.uns[scglue.config.ANNDATA_KEY]["use_dsc_weight"] = "comp_weight"
+            if args.methyl_comp_weight and methyl_file is not None:
+                # the methylation cells toward the same target composition, by their own labels (types the
+                # target lacks keep --comp_weight_floor of their weight, as in the reference)
+                m_labels = evals.harmonize(methyl.obs["celltype"].astype(str),
+                                           evals.get_label_map(dataset_name, methyl.obs["celltype"],
+                                                               rna.obs["celltype"]))
+                m_target = weight_table["hic_estimate"]
+                m_weights, m_table = graph_match.composition_weights(
+                    pd.Series(np.asarray(m_labels), index=methyl.obs_names), m_target,
+                    floor=args.comp_weight_floor)
+                methyl.obs["comp_weight"] = m_weights
+                methyl.uns[scglue.config.ANNDATA_KEY]["use_dsc_weight"] = "comp_weight"
+                os.makedirs(os.path.join(eval_dir, "comp_weight"), exist_ok=True)
+                m_table.round(4).to_csv(os.path.join(eval_dir, "comp_weight", "methyl_composition_weights.csv"))
+                print("Discriminator weights of the methylation cells (--methyl_comp_weight):\n"
+                      + m_table.round(3).to_string())
+            weight_dir = os.path.join(eval_dir, "comp_weight")
+            os.makedirs(weight_dir, exist_ok=True)
+            weight_table.round(4).to_csv(os.path.join(weight_dir, "composition_weights.csv"))
+            graph_match_result["scan"].round(4).to_csv(os.path.join(weight_dir, "resolution_scan.csv"), index=False)
+            # the estimate can only be as fine as the Hi-C only clusters: reference types it
+            # never names keep only --comp_weight_floor of their weight
+            coverage = float(weight_table.loc[weight_table["hic_estimate"] > 0, "reference"].sum())
+            pd.Series({"leiden_resolution": graph_match_result["resolution"],
+                       "n_clusters": len(graph_match_result["table"]),
+                       "reference_types": len(weight_table),
+                       "types_named": int((weight_table["hic_estimate"] > 0).sum()),
+                       "reference_coverage": coverage}, name="value").to_csv(
+                os.path.join(weight_dir, "summary.csv"), header=True)
+            if coverage < 0.85:
+                print(f"WARNING: the composition estimate names reference types covering only "
+                      f"{coverage:.0%} of the reference; types it misses are down-weighted to "
+                      f"{args.comp_weight_floor}. With references much finer than the Hi-C only "
+                      f"clusters (e.g. human brain) the weights can hurt")
+            graph_match_result["table"].round(3).to_csv(os.path.join(weight_dir, "clusters.csv"), index=False)
+            graph_match.plot_composition(
+                {"graph matching": weight_table["hic_estimate"], "RNA reference": weight_table["reference"],
+                 "weighted reference": weight_table["weighted_reference"]},
+                os.path.join(weight_dir, "composition.png"))
+            print("Discriminator weights of the RNA cells (--comp_weight graph):\n"
+                  + weight_table.round(3).to_string())
 
         if methyl_file is not None and atac_file is not None:
             dataset_dict = {"rna": rna, "hic": hic, "atac": atac, "methyl": methyl}
@@ -713,18 +946,24 @@ if __name__ == '__main__':
         else:
             dataset_dict = {"rna": rna, "hic": hic}
             modality_weights = {'rna': 1.0, 'hic': hic_weight}
+        if args.gad_modality:
+            dataset_dict["gad"] = gad
+            modality_weights["gad"] = args.gad_weight
         init_kws = {"latent_dim": latent_dim,
                     "use_attn": use_attn,
+                    "decoder": args.decoder,
                     "binarize": binarize,
                     "h_dim": h_dim,
                     "h_depth": h_depth,
                     "n_strata": n_strata,
                     "cell_strata_weights": args.strata_weights == 'cell',
                     "strata_input_norm": not args.no_strata_input_norm,
+                    "decay_norm": args.decay_norm,
                     "random_seed": seed}
         if multires:
             init_kws.update({
                 "use_attn": args.multires_use_attn,
+                "decoder": None,  # --multires_use_attn (derived from --decoder unless given) decides
                 "multires_use_attn": args.multires_use_attn,
                 "multires_res_dim": args.multires_res_dim,
                 "multires_mlp_max_band": args.multires_mlp_max_band,
@@ -744,12 +983,14 @@ if __name__ == '__main__':
                         "lam_graph": lam_graph,
                         "lam_cycle": lam_cycle,
                         "lam_downsample": args.lam_downsample,
+                        "lam_depth": args.lam_depth,
                         "downsample_min": args.downsample_min,
                         "downsample_max": args.downsample_max,
                         "normalize_u": normalize_u,
                         "lr": lr,
                         "modality_weight": modality_weights},
             balance_kws={"resolution": 1.0},
+            viz_kws={"genes": args.gene_list, "n_loci": args.viz_loci, "level": args.viz},
             fit_kws={"directory": "glue" if exp_name is None else exp_name,
                     "neg_samples": neg_samples,
                     "val_split": 0.05,
@@ -778,6 +1019,8 @@ if __name__ == '__main__':
             atac.obsm["X_glue"] = glue.encode_data("atac", atac)
         if methyl_file is not None:
             methyl.obsm["X_glue"] = glue.encode_data("methyl", methyl)
+        if args.gad_modality:
+            gad.obsm["X_glue"] = glue.encode_data("gad", gad)
 
         # Metrics and plots (see evals.py). Only embeddings and annotations are
         # used, so this also works for backed data; ground truth labels stay in
@@ -787,7 +1030,9 @@ if __name__ == '__main__':
             eval_modalities["atac"] = atac
         if methyl_file is not None:
             eval_modalities["methyl"] = methyl
-        eval_dir = args.eval_dir or os.path.join(exp_name or "glue", "eval")
+        if args.gad_modality:
+            # metrics of the gene-body encoder are prefixed with gad_
+            eval_modalities["gad"] = gad
         metrics, combined = evals.evaluate(
             eval_modalities, eval_dir, label_key="celltype", reference="rna",
             dataset_name=dataset_name, n_neighbors=n_neighbors,
@@ -848,6 +1093,71 @@ if __name__ == '__main__':
                 extra={'resolution': resolution, 'n_genes': n_genes, 'n_strata': n_strata,
                        'filter_strata': filter_strata, 'loop_q': loop_q}
             )
+
+        for base, method in (('scgad', 'harmony'), ('scgad_cca', 'cca')):
+            if base not in args.baselines:
+                continue
+            # same cells and metrics as above (scgad.py; scgad_cca: Seurat CCA as scGAD's runProjection);
+            # a failure here should not lose the outputs of a finished training run
+            try:
+                import scgad
+                scgad_dir = os.path.join(eval_dir, "baselines", base)
+                scgad.run_baseline(
+                    rna, hic, args.scgad_scool or args.scool, scgad_dir,
+                    label_key="celltype", dataset_name=dataset_name, n_neighbors=n_neighbors,
+                    n_features=args.scgad_features, n_pcs=args.scgad_pcs, n_jobs=args.scgad_jobs,
+                    cache_dir=os.path.join(out_dir, "baselines"), seed=seed, log_wandb=use_wandb,
+                    method=method
+                )
+                print(f"Saved {base} baseline to {scgad_dir}")
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                print(f"{base} baseline failed: {e}")
+
+        if 'graph_match' in args.baselines:
+            # same cells and metrics as above (graph_match.py); reuses the clusters of
+            # --comp_weight graph. A failure here should not lose a finished run
+            try:
+                import graph_match
+                if multires:
+                    raise ValueError("graph_match needs the single resolution band features")
+                hic_pred = combined.obs.loc[combined.obs["domain"].astype(str) == "hic",
+                                            "pred_celltype_harmonized"].astype(str)
+                graph_match_dir = os.path.join(eval_dir, "baselines", "graph_match")
+                graph_match.run_baseline(
+                    rna, hic, prior, graph_match_dir, label_key="celltype", dataset_name=dataset_name,
+                    n_neighbors=n_neighbors, resolution=args.graph_match_resolution, seed=seed,
+                    # the clusters of --comp_weight graph are reused only if they cover every Hi-C cell
+                    result=graph_match_result if not args.comp_weight_min_depth else None,
+                    compare={"HiGLUE": hic_pred.value_counts(normalize=True)},
+                    log_wandb=use_wandb
+                )
+                print(f"Saved graph matching baseline to {graph_match_dir}")
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                print(f"Graph matching baseline failed: {e}")
+
+        if 'loops' in args.baselines:
+            # Hi-C only embedding from contacts at given loops (loop_features.py), scored on the
+            # labelled Hi-C cells like the scGAD alone_* metrics. A failure here should not lose a finished run
+            try:
+                import loop_features
+                if not args.loop_baseline_loops:
+                    raise ValueError("--baselines loops needs --loop_baseline_loops")
+                loops_dir = os.path.join(eval_dir, "baselines", "loops")
+                loop_features.run_baseline(
+                    hic, args.scgad_scool or args.scool, pd.read_csv(args.loop_baseline_loops, sep="\t"),
+                    loops_dir, label_key="celltype", res=args.loop_baseline_res, norm=args.loop_baseline_norm,
+                    n_neighbors=n_neighbors, n_jobs=args.scgad_jobs,
+                    cache_dir=os.path.join(out_dir, "baselines"), seed=seed, log_wandb=use_wandb
+                )
+                print(f"Saved loops baseline to {loops_dir}")
+            except Exception as e:  # noqa: BLE001
+                import traceback
+                traceback.print_exc()
+                print(f"Loops baseline failed: {e}")
 
         if args.structure_eval:
             # chromatin structure of pseudobulk pools (structure_eval.py); a failure

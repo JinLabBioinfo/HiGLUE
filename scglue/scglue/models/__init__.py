@@ -279,7 +279,7 @@ def fit_SCGLUE(
         adatas: Mapping[str, AnnData], graph: nx.Graph, model: type = SCGLUEModel,
         skip_balance: bool = False,
         init_kws: Kws = None, compile_kws: Kws = None, fit_kws: Kws = None,
-        balance_kws: Kws = None, log_wandb: bool = False
+        balance_kws: Kws = None, log_wandb: bool = False, viz_kws: Kws = None
 ) -> SCGLUEModel:
     r"""
     Fit GLUE model to integrate single-cell multi-omics data
@@ -310,6 +310,10 @@ def fit_SCGLUE(
     balance_kws
         Balancing weight estimation keyword arguments
         (see :func:`scglue.data.estimate_balancing_weight`)
+    viz_kws
+        Training visualization keyword arguments (see
+        :class:`scglue.models.plugins.EmbeddingVisualizer`, e.g. ``genes``,
+        ``n_loci``, ``level``); figures go to ``<directory>/viz/<stage>``
 
     Returns
     -------
@@ -320,6 +324,8 @@ def fit_SCGLUE(
     compile_kws = compile_kws or {}
     fit_kws = fit_kws or {}
     balance_kws = balance_kws or {}
+    viz_kws = viz_kws or {}
+    viz_root = os.path.join(fit_kws.get("directory", "glue"), "viz")
 
     fit_SCGLUE.logger.info("Pretraining SCGLUE model...")
     pretrain_init_kws = init_kws.copy()
@@ -357,7 +363,9 @@ def fit_SCGLUE(
                                         methyl=adatas.get('methyl', None), methyl_data_config=pretrain.modalities.get('methyl', None),
                                         latent_dim=init_kws['latent_dim'],
                                         prefix='pretrain',
-                                        save_interval=fit_kws.get('save_interval', 10))
+                                        out_dir=os.path.join(viz_root, 'pretrain'),
+                                        save_interval=fit_kws.get('save_interval', 10),
+                                        **viz_kws)
     pretrain.fit(adatas, graph, **pretrain_fit_kws, plugins=[embedding_viz])
     if "directory" in pretrain_fit_kws:
         pretrain.save(os.path.join(pretrain_fit_kws["directory"], "pretrain.dill"))
@@ -405,7 +413,9 @@ def fit_SCGLUE(
                                         methyl=adatas.get('methyl', None), methyl_data_config=pretrain.modalities.get('methyl', None),
                                         latent_dim=init_kws['latent_dim'],
                                         prefix='finetune',
-                                        save_interval=fit_kws.get('save_interval', 10))
+                                        out_dir=os.path.join(viz_root, 'finetune'),
+                                        save_interval=fit_kws.get('save_interval', 10),
+                                        **viz_kws)
     finetune.fit(adatas, graph, **finetune_fit_kws, plugins=[embedding_viz])
     if "directory" in finetune_fit_kws:
         finetune.save(os.path.join(finetune_fit_kws["directory"], "fine-tune.dill"))
