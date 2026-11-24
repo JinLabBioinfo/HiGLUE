@@ -41,7 +41,7 @@ from sklearn.neighbors import KNeighborsClassifier
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import evals  # noqa: E402
 
-RUNS = "cluster_bundle/higlue_bundle/main_runs"
+RUNS = "cluster_bundle/paper_runs"
 CONFIG = "500kb_genebody_gadcw"
 DATASETS = ["pfc", "pfc_full", "human_brain", "islet_atlas", "hires_brain", "gageseq_cortex",
             "gageseq_bm", "droplet_cortex", "islet_inhouse"]

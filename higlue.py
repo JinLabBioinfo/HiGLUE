@@ -13,7 +13,7 @@ import torch
 
 from matplotlib.colors import Normalize
 from preprocess_data import (
-    preprocess_higlue, preprocess_higlue_multires, multires_extra_suffix
+    preprocess_higlue, preprocess_higlue_multires, multires_extra_suffix, check_band_cache
 )
 import multires_hic as mh
 import evals
@@ -571,6 +571,7 @@ if __name__ == '__main__':
             f"{out_dir}/hic/hic_{full_file_suffix}.h5ad",
             backed="r" if args.backed else None
         )
+        check_band_cache(hic, f"{out_dir}/hic/hic_{full_file_suffix}.h5ad")
         if args.backed:
             print(f"Reading Hi-C data lazily from disk: {hic.shape}")
         try:

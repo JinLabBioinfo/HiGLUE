@@ -3,7 +3,7 @@ Full HiRES mouse embryo benchmark (hires_embryo_full; 7 stages, 7,154 labelled s
 21-type label transfer of benchmark_main.sh, on the scHi-C cells of every method and seed.
 
 1. Stage: label-transfer accuracy and balanced accuracy per developmental stage.
-2. Lineage: the 21 RNA cell types folded into 8 lineages (LINEAGE); accuracy and balanced accuracy of the folded
+2. Lineage: the 21 RNA cell types folded into 7 lineages plus mitosis (LINEAGE; mitosis is not scored); accuracy and balanced accuracy of the folded
    predictions. Cells annotated "mitosis" (a cell-cycle state, not a lineage) and "Unknown" are left out as truth; a
    prediction of "mitosis" for any other cell counts as wrong.
 3. Cell cycle (phase of the paired RNA cell, HiRES annotation; G0 left out; circular order G1, Early-S, Mid-S, Late-S,
@@ -39,7 +39,7 @@ UNL = {"Unknown", "Other", "nan", "NA", "None"}
 STAGES = ["E70", "E75", "E80", "E85", "E95", "EX05", "EX15"]
 CYCLE = ["G1", "Early-S", "Mid-S", "Late-S", "G2", "M"]
 K = 15
-# 21 RNA types -> 8 lineages. Epithelial cells express Trp63 / Tfap2a / Wnt6 with little Epcam / Krt8 (surface
+# 21 RNA types -> 7 lineages + mitosis (not scored). Epithelial cells express Trp63 / Tfap2a / Wnt6 with little Epcam / Krt8 (surface
 # ectoderm); NMP (T, Cdx2, Hoxb9) are axial progenitors, kept with the epiblast / primitive streak; Schwann cell
 # precursors (Sox10) are neural crest, with the neural lineage; notochord is axial mesoderm.
 LINEAGE = {
@@ -214,7 +214,7 @@ def main():
              "\n== stage balanced accuracy",
              st.pivot_table(index="method", columns="stage", values="balanced_accuracy")[STAGES + ["all"]]
              .reindex(order).round(3).to_string(),
-             "\n== lineage (8 lineages, mitosis cells excluded)",
+             "\n== lineage (7 lineages, mitosis cells excluded)",
              li.groupby("method")[["accuracy", "balanced_accuracy", "type_accuracy_same_cells", "pred_mitosis_share"]]
              .agg(fmt).reindex(order).to_string(),
              li.groupby("method")[[c for c in li if c.startswith("recall_")]].mean().reindex(order).round(2)

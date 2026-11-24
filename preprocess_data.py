@@ -392,6 +392,30 @@ def _add_edges(graph, edges, edge_type, sign=1, symmetric=True):
     return graph
 
 
+ALLOW_CROSS_CHROM_MARKER = "ALLOW_CROSS_CHROM_BAND"
+
+
+def check_band_cache(hic, path):
+    r"""Refuse a cached Hi-C band built before chromosome-crossing features were dropped (2026-11-23): its strata
+    pair the last bins of a chromosome with the first bins of the next. Such a cache is used only if the
+    preprocessing directory (two levels above the file, <prep_root>/<dataset>/<config>) or the dataset directory
+    above it holds a file named ALLOW_CROSS_CHROM_BAND, e.g. to rerun a dataset exactly as the earlier benchmark."""
+    v = hic.var
+    if "chrom" not in v or "target_chrom" not in v:
+        return
+    n = int((v["chrom"].astype(str) != v["target_chrom"].astype(str)).sum())
+    if n == 0:
+        return
+    d = os.path.dirname(os.path.dirname(os.path.abspath(path)))
+    if any(os.path.exists(os.path.join(x, ALLOW_CROSS_CHROM_MARKER)) for x in (d, os.path.dirname(d))):
+        print(f"WARNING: {path} has {n} chromosome-crossing band features (allowed by {ALLOW_CROSS_CHROM_MARKER})")
+        return
+    raise RuntimeError(
+        f"{path} was built before chromosome-crossing band features were dropped ({n} such features). "
+        f"Rebuild it (delete the hic/ caches of this preprocessing directory or use a new --prep_root), or create "
+        f"{os.path.join(d, ALLOW_CROSS_CHROM_MARKER)} to use it as is.")
+
+
 def preprocess_higlue_multires(args, glue_args):
     """Build multi-resolution Hi-C features and a multi-scale guidance graph.
 
@@ -997,6 +1021,12 @@ def preprocess_higlue(args, glue_args):
             strata_hic.var["target_chrom"] = split.map(lambda x: x[0])
             strata_hic.var["target_chromStart"] = split.map(lambda x: x[1]).astype(int)
             strata_hic.var["target_chromEnd"] = split.map(lambda x: x[2]).astype(int)
+            if k - loops_offset > 0:
+                # the diagonals run along the concatenated genome, so the last k bins of a chromosome pair with the
+                # first bins of the next one: drop these chromosome-crossing features (structural zeros, not part of
+                # the band; 2026-11-23, independent audit) so that they are not in the likelihood
+                same_chrom = (strata_hic.var["chrom"].astype(str) == strata_hic.var["target_chrom"].astype(str))
+                strata_hic = strata_hic[:, same_chrom.to_numpy()].copy()
 
             if k - loops_offset > 0:  # keep all features for the first strata as roots for later, even if they have no interactions
                 sc.pp.filter_genes(strata_hic, min_counts=min_count)
@@ -1021,6 +1051,7 @@ def preprocess_higlue(args, glue_args):
         hic.write(base_hic_path, compression="gzip")
     else:
         hic = ad.read_h5ad(base_hic_path)
+        check_band_cache(hic, base_hic_path)
     print('Analyzing Hi-C data...')
     top_loop_mask = np.ones(hic.shape[1], dtype=bool)
     if n_distal_interactions is not None:

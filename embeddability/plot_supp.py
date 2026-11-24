@@ -27,7 +27,7 @@ plt.rcParams.update({"font.family": "sans-serif", "font.size": 8, "axes.linewidt
                      "xtick.major.width": 0.6, "ytick.major.width": 0.6, "pdf.fonttype": 42})
 
 RES = "embeddability/results"
-RUNS = "cluster_bundle/higlue_bundle/main_runs/main_runs.csv"
+RUNS = "cluster_bundle/paper_runs/main_runs.csv"
 CONFIG = "500kb_genebody_gadcw"
 INK, MUTED, GRID, BG = "#1f1f1e", "#6b6b66", "#e4e4e0", "#ffffff"
 # series keep their colors across panels (graph matching / HiGLUE as in graph_match.SERIES_COLORS)

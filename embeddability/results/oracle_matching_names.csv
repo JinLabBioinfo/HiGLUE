@@ -1,4 +1,4 @@
-,genebody,dataset,anchor
+Unnamed: 0,genebody,dataset,anchor
 L2/3,L2/3,pfc,
 Pvalb,Pvalb,pfc,
 Sst,Sst,pfc,
@@ -87,44 +87,6 @@ Sncg,,human_brain,Sncg
 Sst,,human_brain,Sst
 SubCtx-Cplx,,human_brain,Vip
 Vip,,human_brain,Vip
-Beta,Beta,islet_atlas,
-Epi Aci,Epi Aci,islet_atlas,
-Alpha,Alpha,islet_atlas,
-Epi Duc,Epi Duc,islet_atlas,
-Delta,Delta,islet_atlas,
-PSC_Quiescent,PSC,islet_atlas,
-Macrophage,Macrophage,islet_atlas,
-Endothelial,Endothelial,islet_atlas,
-PSC,PSC_Quiescent,islet_atlas,
-Gamma,Gamma,islet_atlas,
-Schwann,Alpha,islet_atlas,
-T cell,Delta,islet_atlas,
-Alpha,,islet_atlas,Alpha
-Beta,,islet_atlas,Beta
-Delta,,islet_atlas,Delta
-Endothelial,,islet_atlas,Endothelial
-Epi Aci,,islet_atlas,Epi Aci
-Epi Duc,,islet_atlas,Epi Duc
-Gamma,,islet_atlas,Gamma
-Macrophage,,islet_atlas,Macrophage
-PSC,,islet_atlas,PSC
-PSC_Quiescent,,islet_atlas,PSC_Quiescent
-Schwann,,islet_atlas,PSC
-T cell,,islet_atlas,Macrophage
-Ex1,Ex1,hires_brain,
-Ex2,Ex2,hires_brain,
-In1,In1,hires_brain,
-Ast,Ast,hires_brain,
-Oli,Oli,hires_brain,
-In2,In2,hires_brain,
-Ex3,Ex3,hires_brain,
-Ast,,hires_brain,Ast
-Ex1,,hires_brain,Ex1
-Ex2,,hires_brain,Ex2
-Ex3,,hires_brain,Ex3
-In1,,hires_brain,In1
-In2,,hires_brain,In2
-Oli,,hires_brain,Oli
 L5 IT CTX,L5 IT CTX,gageseq_cortex,
 L5 IT RSP,L5 IT RSP,gageseq_cortex,
 L2/3 IT CTX c,L2/3 IT CTX c,gageseq_cortex,
@@ -193,38 +155,6 @@ LMPP,,gageseq_bm,LMPP
 MEP,,gageseq_bm,MEP
 MLP,,gageseq_bm,MLP
 MPP,,gageseq_bm,HSC
-ITL5GL,ITL5GL,droplet_cortex,
-ITL23GL,ITL23GL,droplet_cortex,
-CTGL,CTGL,droplet_cortex,
-OGC,OGC,droplet_cortex,
-D12MSN,D12MSN,droplet_cortex,
-ITL6GL,ITL6GL,droplet_cortex,
-ASC,ASC,droplet_cortex,
-VIPGA,VIPGA,droplet_cortex,
-ETL5GL,ETL5GL,droplet_cortex,
-PTGL,ITL23GL,droplet_cortex,
-OPC,OPC,droplet_cortex,
-PVGA,PVGA,droplet_cortex,
-NPGL,NPGL,droplet_cortex,
-CLAGL,CLAGL,droplet_cortex,
-MGL,MGL,droplet_cortex,
-VEC,PVGA,droplet_cortex,
-ASC,,droplet_cortex,ASC
-CLAGL,,droplet_cortex,CLAGL
-CTGL,,droplet_cortex,CTGL
-D12MSN,,droplet_cortex,D12MSN
-ETL5GL,,droplet_cortex,ETL5GL
-ITL23GL,,droplet_cortex,ITL23GL
-ITL5GL,,droplet_cortex,ITL5GL
-ITL6GL,,droplet_cortex,ITL6GL
-MGL,,droplet_cortex,MGL
-NPGL,,droplet_cortex,NPGL
-OGC,,droplet_cortex,OGC
-OPC,,droplet_cortex,OPC
-PTGL,,droplet_cortex,ITL5GL
-PVGA,,droplet_cortex,PVGA
-VEC,,droplet_cortex,ITL5GL
-VIPGA,,droplet_cortex,VIPGA
 Alpha,Endothelial,islet_inhouse,
 Beta,Beta,islet_inhouse,
 Alpha,,islet_inhouse,Alpha
@@ -269,3 +199,73 @@ notochord,,hires_embryo_full_nomito,notochord
 oligodendrocytes and progenitors,,hires_embryo_full_nomito,oligodendrocytes and progenitors
 radial glias,,hires_embryo_full_nomito,radial glias
 schwann cell precursors,,hires_embryo_full_nomito,schwann cell precursors
+Ex1,Ex1,hires_brain,
+Ex2,Ex2,hires_brain,
+In1,In1,hires_brain,
+Ast,Ast,hires_brain,
+Oli,Oli,hires_brain,
+In2,In2,hires_brain,
+Ex3,Ex3,hires_brain,
+Ast,,hires_brain,Ast
+Ex1,,hires_brain,Ex1
+Ex2,,hires_brain,Ex2
+Ex3,,hires_brain,Ex3
+In1,,hires_brain,In1
+In2,,hires_brain,In2
+Oli,,hires_brain,Oli
+ITL5GL,ITL5GL,droplet_cortex,
+ITL23GL,ITL23GL,droplet_cortex,
+CTGL,CTGL,droplet_cortex,
+OGC,OGC,droplet_cortex,
+D12MSN,D12MSN,droplet_cortex,
+ITL6GL,ITL6GL,droplet_cortex,
+ASC,ASC,droplet_cortex,
+VIPGA,VIPGA,droplet_cortex,
+ETL5GL,ETL5GL,droplet_cortex,
+PTGL,ITL23GL,droplet_cortex,
+OPC,OPC,droplet_cortex,
+PVGA,PVGA,droplet_cortex,
+NPGL,NPGL,droplet_cortex,
+CLAGL,CLAGL,droplet_cortex,
+MGL,MGL,droplet_cortex,
+VEC,PVGA,droplet_cortex,
+ASC,,droplet_cortex,ASC
+CLAGL,,droplet_cortex,CLAGL
+CTGL,,droplet_cortex,CTGL
+D12MSN,,droplet_cortex,D12MSN
+ETL5GL,,droplet_cortex,ETL5GL
+ITL23GL,,droplet_cortex,ITL23GL
+ITL5GL,,droplet_cortex,ITL5GL
+ITL6GL,,droplet_cortex,ITL6GL
+MGL,,droplet_cortex,MGL
+NPGL,,droplet_cortex,NPGL
+OGC,,droplet_cortex,OGC
+OPC,,droplet_cortex,OPC
+PTGL,,droplet_cortex,ITL5GL
+PVGA,,droplet_cortex,PVGA
+VEC,,droplet_cortex,ITL5GL
+VIPGA,,droplet_cortex,VIPGA
+Beta,Beta,islet_atlas,
+Epi Aci,Epi Aci,islet_atlas,
+Alpha,Alpha,islet_atlas,
+Epi Duc,Epi Duc,islet_atlas,
+Delta,Delta,islet_atlas,
+PSC_Quiescent,PSC,islet_atlas,
+Macrophage,Macrophage,islet_atlas,
+Endothelial,Endothelial,islet_atlas,
+PSC,PSC_Quiescent,islet_atlas,
+Gamma,Gamma,islet_atlas,
+Schwann,Alpha,islet_atlas,
+T cell,Delta,islet_atlas,
+Alpha,,islet_atlas,Alpha
+Beta,,islet_atlas,Beta
+Delta,,islet_atlas,Delta
+Endothelial,,islet_atlas,Endothelial
+Epi Aci,,islet_atlas,Epi Aci
+Epi Duc,,islet_atlas,Epi Duc
+Gamma,,islet_atlas,Gamma
+Macrophage,,islet_atlas,Macrophage
+PSC,,islet_atlas,PSC
+PSC_Quiescent,,islet_atlas,PSC_Quiescent
+Schwann,,islet_atlas,PSC
+T cell,,islet_atlas,Macrophage

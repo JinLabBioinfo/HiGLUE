@@ -33,8 +33,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import evals  # noqa: E402
 import graph_match as gm  # noqa: E402
 
-RUNS = "cluster_bundle/higlue_bundle/main_runs"
-DATA = "cluster_bundle/higlue_bundle/main_data"
+RUNS = "cluster_bundle/paper_runs"
+DATA = "cluster_bundle/paper_data"
 CONFIG = "500kb_genebody_gadcw"
 SUFFIX = "500kb_raw_0.98_2d_10"
 MIN_REF = 10  # reference cells needed to name a type (graph_match uses 30, which drops 13-24 cell types)
